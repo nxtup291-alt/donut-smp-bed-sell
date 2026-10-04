@@ -13,6 +13,7 @@ public class DonutBedClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         Config.INSTANCE = Config.load();
+        Profit.load();
         openKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key.donutbed.open", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_RIGHT_SHIFT, "category.donutbed"));
 

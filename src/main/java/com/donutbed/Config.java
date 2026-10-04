@@ -12,10 +12,11 @@ public class Config {
 
     public boolean enabled = false;
     public boolean autoSell = true;
-    public boolean repeat = false;
     public boolean notifications = true;
+    public boolean autoPickBed = true;
     public long undercut = 1000;
     public long minPrice = 0;
+    public long bedCost = 2500;
     public int scanDelayMs = 500;
     public int timeoutMs = 10000;
     public int cooldownMs = 5000;
@@ -53,6 +54,7 @@ public class Config {
     public void sanitize() {
         undercut = Math.max(0, undercut);
         minPrice = Math.max(0, minPrice);
+        bedCost = Math.max(0, bedCost);
         scanDelayMs = Math.min(10000, Math.max(100, scanDelayMs));
         timeoutMs = Math.min(60000, Math.max(2000, timeoutMs));
         cooldownMs = Math.min(600000, Math.max(2000, cooldownMs));

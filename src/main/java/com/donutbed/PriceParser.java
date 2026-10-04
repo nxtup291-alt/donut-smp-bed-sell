@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.OptionalLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.Locale;
 
 /** Reads prices such as $25,000 / $25.0K / $1.5M from item lore (with or without formatting codes). */
 public final class PriceParser {
@@ -48,6 +49,22 @@ public final class PriceParser {
         } catch (Exception e) {
             return OptionalLong.empty();
         }
+    }
+
+    /** True if any lore/tooltip line mentions the given player name (e.g. "Seller: Name"). */
+    public static boolean mentionsPlayer(ItemStack stack, PlayerEntity player, String name) {
+        if (name == null || name.isEmpty()) return false;
+        Pattern pat = Pattern.compile("(?<![a-z0-9_])" + Pattern.quote(name.toLowerCase(Locale.ROOT)) + "(?![a-z0-9_])");
+        List<String> lines = new ArrayList<>();
+        LoreComponent lore = stack.get(DataComponentTypes.LORE);
+        if (lore != null) for (Text t : lore.lines()) lines.add(clean(t.getString()));
+        try {
+            for (Text t : stack.getTooltip(Item.TooltipContext.DEFAULT, player, TooltipType.BASIC)) lines.add(clean(t.getString()));
+        } catch (Exception ignored) {}
+        for (String l : lines) {
+            if (pat.matcher(l.toLowerCase(Locale.ROOT)).find()) return true;
+        }
+        return false;
     }
 
     public static OptionalLong parse(List<String> lines) {

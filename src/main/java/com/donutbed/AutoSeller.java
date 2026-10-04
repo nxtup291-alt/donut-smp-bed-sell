@@ -7,6 +7,7 @@ import net.minecraft.item.BedItem;
 import net.minecraft.item.ItemStack;
 import net.minecraft.screen.GenericContainerScreenHandler;
 import net.minecraft.screen.slot.Slot;
+import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.text.Text;
 
 import java.util.OptionalLong;
@@ -24,20 +25,18 @@ public final class AutoSeller {
     private static long nextAllowed = 0;
     private static long stateStart = 0;
     private static long screenOpenedAt = -1;
-    private static int consecutiveErrors = 0;
     private static boolean sold = false;
     private static long pendingSell = -1;
+    private static long lastListed = -1;
+    private static String lastNotified = "";
+    private static long invCooldown = 0;
 
     public static void tick(MinecraftClient mc) {
         Config c = Config.INSTANCE;
         long now = System.currentTimeMillis();
 
-        if (mc.player == null || mc.getNetworkHandler() == null) {
-            if (status != Status.ERROR) status = Status.IDLE;
-            return;
-        }
-        if (!c.enabled) {
-            if (status != Status.ERROR) status = Status.IDLE;
+        if (mc.player == null || mc.getNetworkHandler() == null || !c.enabled) {
+            status = Status.IDLE;
             return;
         }
 
@@ -46,13 +45,25 @@ public final class AutoSeller {
                 if (now >= nextAllowed) status = Status.IDLE;
             }
             case IDLE -> {
-                if (now >= nextAllowed && mc.currentScreen == null) start(mc, now);
+                if (now < nextAllowed || mc.currentScreen != null) return;
+                if (!(mc.player.getMainHandStack().getItem() instanceof BedItem)) {
+                    if (!c.autoPickBed) {
+                        message = "Waiting - hold a bed in your main hand";
+                        return;
+                    }
+                    if (now < invCooldown) return;
+                    invCooldown = now + 400;
+                    message = pickBed(mc) ? "Moved a bed into your hand" : "No bed found in your inventory";
+                    return;
+                }
+                if (now < invCooldown) return; // let the inventory move sync with the server
+                start(mc, now);
             }
             case SCANNING -> {
                 if (now - stateStart > c.timeoutMs) {
                     fail(mc, screenOpenedAt < 0
                             ? "Auction GUI did not open in time"
-                            : "Empty /ah bed result (no listings loaded)");
+                            : "No bed listings loaded - retrying");
                     return;
                 }
                 if (mc.currentScreen instanceof HandledScreen<?> hs
@@ -68,7 +79,7 @@ public final class AutoSeller {
             case PRICE_FOUND -> {
                 if (now - stateStart < 400) return; // let the GUI close
                 if (!c.autoSell) {
-                    if (now - stateStart > 1500) complete(mc, "Price found (Auto Sell is OFF, nothing sold)");
+                    if (now - stateStart > 1500) complete("Price found (Auto Sell is OFF, nothing sold)");
                     return;
                 }
                 status = Status.SELLING;
@@ -86,19 +97,42 @@ public final class AutoSeller {
                         return;
                     }
                     if (pendingSell < Math.max(1, c.minPrice)) {
-                        fail(mc, "Sell price below minimum - not selling");
+                        complete("Skipped - price below your minimum");
                         return;
                     }
                     mc.getNetworkHandler().sendChatCommand("ah sell " + pendingSell);
                     sold = true;
+                    lastListed = pendingSell;
                     stateStart = now;
-                    message = "Sent /ah sell " + pendingSell;
-                    notify(mc, "Sent: /ah sell " + pendingSell);
+                    Profit.Entry e = Profit.record(pendingSell, c.bedCost);
+                    message = "Listed for " + Profit.money(pendingSell) + " (" + Profit.signed(e.profit) + ")";
+                    notify(mc, "Listed " + Profit.money(pendingSell) + " | profit " + Profit.signed(e.profit)
+                            + " | total " + Profit.signed(Profit.total()));
                 } else if (now - stateStart > 1500) {
-                    complete(mc, "Listed bed for $" + pendingSell);
+                    complete(message);
                 }
             }
         }
+    }
+
+    /** Finds a bed in the hotbar (selects it) or main inventory (swaps it into the selected slot). */
+    private static boolean pickBed(MinecraftClient mc) {
+        PlayerInventory inv = mc.player.getInventory();
+        for (int i = 0; i < 9; i++) {
+            if (inv.getStack(i).getItem() instanceof BedItem) {
+                inv.selectedSlot = i;
+                return true;
+            }
+        }
+        for (int i = 9; i < 36; i++) {
+            if (inv.getStack(i).getItem() instanceof BedItem) {
+                if (mc.interactionManager == null) return false;
+                mc.interactionManager.clickSlot(mc.player.playerScreenHandler.syncId, i,
+                        inv.selectedSlot, SlotActionType.SWAP, mc.player);
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void start(MinecraftClient mc, long now) {
@@ -117,7 +151,8 @@ public final class AutoSeller {
 
     private static void scan(MinecraftClient mc, GenericContainerScreenHandler h, long now) {
         Config c = Config.INSTANCE;
-        int stacks = 0, beds = 0, unpriced = 0;
+        int stacks = 0, beds = 0, unpriced = 0, own = 0;
+        String me = mc.player.getName().getString();
         long min = Long.MAX_VALUE;
 
         for (Slot s : h.slots) {
@@ -127,6 +162,8 @@ public final class AutoSeller {
             stacks++;
             if (!(st.getItem() instanceof BedItem)) continue;     // real item check, not name
             OptionalLong p = PriceParser.fromStack(st, mc.player);
+            if (PriceParser.mentionsPlayer(st, mc.player, me)) { own++; continue; } // my own listing
+            if (p.isPresent() && p.getAsLong() == lastListed) { own++; continue; }  // the one I just listed
             if (p.isPresent()) {
                 beds++;
                 min = Math.min(min, p.getAsLong());
@@ -140,7 +177,9 @@ public final class AutoSeller {
             return; // keep waiting until timeout
         }
         if (beds == 0) {
-            fail(mc, unpriced > 0 ? "Beds found but price could not be parsed" : "No bed listings detected");
+            closeGui(mc);
+            fail(mc, own > 0 && unpriced == 0 ? "Only your own bed listings found - not selling"
+                    : unpriced > 0 ? "Beds found but price could not be parsed" : "No bed listings detected");
             return;
         }
 
@@ -149,41 +188,41 @@ public final class AutoSeller {
         sellPrice = target;
         long floor = Math.max(1, c.minPrice);
         if (target < floor) {
-            fail(mc, "Calculated price $" + target + " is below minimum $" + floor);
+            // Not an error: just skip this round and keep going.
+            closeGui(mc);
+            status = Status.IDLE;
+            message = "Skipped: " + Profit.money(target) + " is below your " + Profit.money(floor) + " minimum";
             return;
         }
 
         pendingSell = target;
         status = Status.PRICE_FOUND;
         stateStart = now;
-        message = beds + " bed listing(s). Cheapest $" + min + (unpriced > 0 ? " (" + unpriced + " unparsed ignored)" : "");
-        mc.player.closeHandledScreen();
+        message = beds + " bed listing(s). Cheapest " + Profit.money(min)
+                + (unpriced > 0 ? " (" + unpriced + " unparsed ignored)" : "")
+                + (own > 0 ? " [ignored " + own + " of mine]" : "");
+        closeGui(mc);
     }
 
-    private static void complete(MinecraftClient mc, String msg) {
-        Config c = Config.INSTANCE;
-        consecutiveErrors = 0;
+    private static void closeGui(MinecraftClient mc) {
+        if (mc.player != null && mc.currentScreen instanceof HandledScreen<?>) mc.player.closeHandledScreen();
+    }
+
+    private static void complete(String msg) {
         status = Status.IDLE;
         message = msg;
-        nextAllowed = Math.max(nextAllowed, System.currentTimeMillis() + c.cooldownMs);
-        if (!c.repeat) {
-            c.enabled = false;
-            c.save();
-        }
+        lastNotified = "";
+        nextAllowed = Math.max(nextAllowed, System.currentTimeMillis() + Config.INSTANCE.cooldownMs);
     }
 
     private static void fail(MinecraftClient mc, String msg) {
-        Config c = Config.INSTANCE;
         status = Status.ERROR;
         message = msg;
-        consecutiveErrors++;
-        nextAllowed = Math.max(nextAllowed, System.currentTimeMillis() + c.cooldownMs);
-        if (mc.player != null && mc.currentScreen instanceof HandledScreen<?>) mc.player.closeHandledScreen();
-        notify(mc, "\u00a7cError: " + msg);
-        if (!c.repeat || consecutiveErrors >= 3) {
-            c.enabled = false; // stop instead of retrying forever
-            c.save();
-            if (c.repeat) notify(mc, "\u00a7cStopped after 3 errors in a row.");
+        nextAllowed = Math.max(nextAllowed, System.currentTimeMillis() + Config.INSTANCE.cooldownMs);
+        closeGui(mc);
+        if (!msg.equals(lastNotified)) { // don't repeat the same chat message every cycle
+            lastNotified = msg;
+            notify(mc, "\u00a7c" + msg + " (will keep trying)");
         }
     }
 
