@@ -14,6 +14,7 @@ public class DonutBedClient implements ClientModInitializer {
     public void onInitializeClient() {
         Config.INSTANCE = Config.load();
         Profit.load();
+        PriceLog.load();
         openKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key.donutbed.open", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_RIGHT_SHIFT, "category.donutbed"));
 

@@ -21,6 +21,7 @@ public final class Profit {
 
     public static class Entry {
         public long time;
+        public String item = "Bed";
         public long price;
         public long cost;
         public long profit;
@@ -33,7 +34,7 @@ public final class Profit {
     private static Data data = new Data();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final DateTimeFormatter FMT =
-            DateTimeFormatter.ofPattern("MMM d, yyyy  h:mm a", Locale.US).withZone(ZoneId.systemDefault());
+            DateTimeFormatter.ofPattern("yyyy-MM-dd  h:mm a", Locale.US).withZone(ZoneId.systemDefault());
 
     private static Path path() {
         return FabricLoader.getInstance().getConfigDir().resolve("donut-bed-profit.json");
@@ -59,8 +60,9 @@ public final class Profit {
         }
     }
 
-    public static Entry record(long price, long cost) {
+    public static Entry record(String item, long price, long cost) {
         Entry e = new Entry();
+        e.item = item;
         e.time = System.currentTimeMillis();
         e.price = price;
         e.cost = cost;
@@ -106,6 +108,16 @@ public final class Profit {
     public static String date(long t) { return FMT.format(Instant.ofEpochMilli(t)); }
 
     public static String money(long v) { return String.format("$%,d", v); }
+
+    public static String compact(long v) {
+        long a = Math.abs(v);
+        String s = a >= 1_000_000 ? String.format(Locale.US, "%.2fM", a / 1_000_000.0) : String.format(Locale.US, "%,d", a);
+        return (v < 0 ? "-" : "") + "$" + s;
+    }
+
+    public static String compactSigned(long v) {
+        return (v >= 0 ? "+" : "-") + compact(Math.abs(v));
+    }
 
     public static String signed(long v) { return (v >= 0 ? "+" : "-") + String.format("$%,d", Math.abs(v)); }
 
