@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "donutbedclient",
+  "version": "${version}",
+  "name": "Donut Bed Client",
+  "description": "Auto-undercut bed seller for the auction house (testing tool).",
+  "authors": ["You"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": { "client": ["com.donutbed.DonutBedClient"] },
+  "depends": {
+    "fabricloader": ">=0.16.9",
+    "minecraft": "~1.21.4",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
