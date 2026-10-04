@@ -46,6 +46,12 @@ public class Config {
     public int scanPages = 5;                // max pages to read if it can't sort
     public boolean perItemPrice = true;      // divide stack prices by stack size
     public boolean debug = false;
+    public int theme = 0;
+    public int undercutMode = 0;             // 0 = flat $, 1 = percent
+    public double undercutPercent = 1.0;
+    public long minProfit = 0;               // never list below cost + this
+    public boolean dealFinder = true;
+    public int dealPercent = 40;             // listing this % under market = deal
     public boolean outlierProtect = true;
     public int outlierPercent = 30;
     public boolean soundAlert = true;
@@ -104,6 +110,11 @@ public class Config {
         bedCost = Math.max(0, bedCost);
         outlierPercent = Math.min(90, Math.max(5, outlierPercent));
         scanPages = Math.min(20, Math.max(1, scanPages));
+        theme = Math.min(6, Math.max(0, theme));
+        undercutMode = undercutMode == 1 ? 1 : 0;
+        undercutPercent = Math.min(50.0, Math.max(0.0, undercutPercent));
+        minProfit = Math.max(0, minProfit);
+        dealPercent = Math.min(95, Math.max(5, dealPercent));
         scanDelayMs = Math.min(10000, Math.max(100, scanDelayMs));
         timeoutMs = Math.min(60000, Math.max(2000, timeoutMs));
         cooldownMs = Math.min(600000, Math.max(2000, cooldownMs));

@@ -10,6 +10,7 @@ import net.minecraft.registry.Registries;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
+import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -22,12 +23,58 @@ public class DonutBedScreen extends Screen {
     private static final int H = 252;
     private static final int SIDE = 80;
     private static final int ROWS = 12;
-    private static final int ACCENT = 0xFF4C8DFF;
 
-    // tabs: 0 dashboard, 1 settings, 2 scan, 3 items, 4 prices, 5 alerts, 6 profit, 7 history
-    private static final String[] TABS = { "Dashboard", "Settings", "Scan", "Items", "Prices", "Alerts", "Profit", "History" };
+    // tabs: 0 dashboard, 1 pricing, 2 scan, 3 items, 4 prices, 5 deals, 6 alerts, 7 profit, 8 history
+    private static final String[] TABS = { "Dashboard", "Pricing", "Scan", "Items", "Prices", "Deals", "Alerts", "Profit", "History" };
     private static final String[] RANGES = { "1H", "1D", "7D", "All" };
     private static final long[] RANGE_MS = { 3_600_000L, 86_400_000L, 7L * 86_400_000L, 0L };
+
+    private static final int[] THEME = { 0xFF4C8DFF, 0xFFA066FF, 0xFF35D07F, 0xFFFF9F43, 0xFFFF6EB4, 0xFFFF5D62, 0xFF2FD6D6 };
+    private static final String[] THEME_NAMES = { "Ocean", "Violet", "Mint", "Sunset", "Bubblegum", "Ruby", "Aqua" };
+
+    private static final String[][] ICONS = {
+            { "###.###.", "###.###.", "###.###.", "........", "###.###.", "###.###.", "###.###.", "........" },   // dashboard
+            { "..#.....", "########", "..#.....", "......#.", "########", "......#.", "...#....", "########" },   // pricing
+            { "..####..", ".#....#.", ".#....#.", ".#....#.", "..####..", ".....##.", "......##", ".......#" },   // scan
+            { "..####..", ".#.##.#.", "#..##..#", "########", "#......#", "#......#", "#......#", "########" },   // items
+            { "#.......", "#.....#.", "#..#.#.#", "#.#.#..#", "##.#....", "#.......", "#.......", "########" },   // prices
+            { "....##..", "...##...", "..##....", ".######.", "...##...", "..##....", ".##.....", ".#......" },   // deals
+            { "...##...", "..####..", "..####..", ".######.", ".######.", "########", "........", "...##..." },   // alerts
+            { "........", "......#.", "..#...#.", "..#.#.#.", "..#.#.#.", "#.#.#.#.", "#.#.#.#.", "########" },   // profit
+            { "..####..", ".#.##.#.", "#..##..#", "#..###.#", "#......#", ".#....#.", "..####..", "........" }    // history
+    };
+
+    private static final String[] DONUT = {
+            "...####...", "..######..", ".###..###.", "###....###", "##......##",
+            "##......##", "###....###", ".###..###.", "..######..", "...####..." };
+
+    private static final Map<String, String> TIPS = new HashMap<>();
+    static {
+        TIPS.put("Auto Sell", "Off = watch prices only, never list anything.");
+        TIPS.put("Auto-pick", "Moves the item from your inventory into your hand.");
+        TIPS.put("Percent undercut", "Undercut by a % of the price instead of a flat $.");
+        TIPS.put("Outlier protection", "Ignore lowball listings far under the rest.");
+        TIPS.put("Flat undercut ($)", "How many $ below the cheapest price you list at.");
+        TIPS.put("Percent undercut (%)", "Used when Percent undercut is ON. Example: 1.5");
+        TIPS.put("Minimum price ($)", "Never list below this price.");
+        TIPS.put("Min profit per item ($)", "Never list below your cost + this amount.");
+        TIPS.put("Lowball threshold (%)", "A listing this % under the next one is ignored.");
+        TIPS.put("Auto sort (lowest first)", "Clicks the sort button until prices run lowest-first.");
+        TIPS.put("Per-item pricing (stacks)", "Stack price divided by stack size.");
+        TIPS.put("Debug messages in chat", "Shows exactly what price it read, every round.");
+        TIPS.put("Max pages to read", "Pages to read when it can't sort.");
+        TIPS.put("Scan delay (ms)", "Wait after the GUI opens before reading it.");
+        TIPS.put("Auction timeout (s)", "Give up waiting for the auction GUI after this.");
+        TIPS.put("Cooldown (s)", "Minimum pause between auction commands.");
+        TIPS.put("Enabled (rotates in)", "Include this item in the selling rotation.");
+        TIPS.put("Search term (/ah ...)", "The word sent to /ah to find this item.");
+        TIPS.put("Cost per item ($)", "What you paid. Used to work out profit.");
+        TIPS.put("Deal finder", "Alerts you to listings far below market.");
+        TIPS.put("Min discount (%)", "How far under market counts as a deal.");
+        TIPS.put("Chat notifications", "Messages in chat when something happens.");
+        TIPS.put("Sound alert", "Plays a sound when you list or find a deal.");
+        TIPS.put("Popup toast", "Shows a popup in the corner.");
+    }
 
     private static int tab = 0;
     private static int page = 0;
@@ -36,20 +83,30 @@ public class DonutBedScreen extends Screen {
     private static int priceRange = 1;
     private static String note = "";
     private static long noteUntil = 0;
+    private static float tabHiY = -1f;
+    private static long tabSwitchAt = 0;
+    private static boolean skipAnim = false;
     private static final Map<String, Float> ANIM = new HashMap<>();
+    private static final Map<String, Double> NUMS = new HashMap<>();
 
     private record Hit(int x, int y, int w, int h, Runnable action) {}
 
     private final List<Hit> hits = new ArrayList<>();
     private final List<TextFieldWidget> fields = new ArrayList<>();
+    private final long openAt;
     private boolean resetArmed = false;
+    private String tip = null;
     private int left, top, cx, cw;
 
     public DonutBedScreen() {
         super(Text.literal("Donut Bed Client"));
+        openAt = skipAnim ? 0 : System.currentTimeMillis();
+        skipAnim = false;
     }
 
     private void reopen() {
+        skipAnim = true;
+        tabSwitchAt = System.currentTimeMillis();
         if (client != null) client.setScreen(new DonutBedScreen());
     }
 
@@ -57,6 +114,10 @@ public class DonutBedScreen extends Screen {
         List<Config.ItemCfg> items = Config.INSTANCE.items;
         itemSel = Math.max(0, Math.min(itemSel, items.size() - 1));
         return items.get(itemSel);
+    }
+
+    private static int acc() {
+        return THEME[Math.max(0, Math.min(THEME.length - 1, Config.INSTANCE.theme))];
     }
 
     // ------------------------------------------------------------ setup
@@ -73,15 +134,20 @@ public class DonutBedScreen extends Screen {
         int y0 = top + 36;
 
         if (tab == 1) {
-            int base = y0 + 16 + 3 * 21 + 4;
+            int base = y0 + 16 + 2 * 22 + 4;
             numField(fx, base + 1, 80, String.valueOf(c.undercut), s -> c.undercut = num(s, c.undercut));
-            numField(fx, base + 21, 80, String.valueOf(c.minPrice), s -> c.minPrice = num(s, c.minPrice));
-            numField(fx, base + 41, 80, String.valueOf(c.outlierPercent), s -> c.outlierPercent = (int) Math.min(num(s, c.outlierPercent), 1000));
-            numField(fx, base + 61, 80, String.valueOf(c.scanDelayMs), s -> c.scanDelayMs = (int) Math.min(num(s, c.scanDelayMs), 1_000_000));
-            numField(fx, base + 81, 80, String.valueOf(c.timeoutMs / 1000), s -> c.timeoutMs = (int) Math.min(num(s, c.timeoutMs / 1000) * 1000, 1_000_000));
-            numField(fx, base + 101, 80, String.valueOf(c.cooldownMs / 1000), s -> c.cooldownMs = (int) Math.min(num(s, c.cooldownMs / 1000) * 1000, 1_000_000));
+            decField(fx, base + 22, 80, String.valueOf(c.undercutPercent), s -> {
+                try { c.undercutPercent = Math.min(50.0, Double.parseDouble(s)); } catch (Exception ignored) {}
+            });
+            numField(fx, base + 43, 80, String.valueOf(c.minPrice), s -> c.minPrice = num(s, c.minPrice));
+            numField(fx, base + 64, 80, String.valueOf(c.minProfit), s -> c.minProfit = num(s, c.minProfit));
+            numField(fx, base + 85, 80, String.valueOf(c.outlierPercent), s -> c.outlierPercent = (int) Math.min(num(s, c.outlierPercent), 1000));
         } else if (tab == 2) {
-            numField(fx, y0 + 16 + 3 * 22 + 5, 80, String.valueOf(c.scanPages), s -> c.scanPages = (int) Math.min(num(s, c.scanPages), 100));
+            int base = y0 + 16 + 3 * 22 + 4;
+            numField(fx, base + 1, 80, String.valueOf(c.scanPages), s -> c.scanPages = (int) Math.min(num(s, c.scanPages), 100));
+            numField(fx, base + 22, 80, String.valueOf(c.scanDelayMs), s -> c.scanDelayMs = (int) Math.min(num(s, c.scanDelayMs), 1_000_000));
+            numField(fx, base + 43, 80, String.valueOf(c.timeoutMs / 1000), s -> c.timeoutMs = (int) Math.min(num(s, c.timeoutMs / 1000) * 1000, 1_000_000));
+            numField(fx, base + 64, 80, String.valueOf(c.cooldownMs / 1000), s -> c.cooldownMs = (int) Math.min(num(s, c.cooldownMs / 1000) * 1000, 1_000_000));
         } else if (tab == 3) {
             Config.ItemCfg it = selItem();
             int base = y0 + 84;
@@ -90,6 +156,8 @@ public class DonutBedScreen extends Screen {
             numField(fx, base + 43, 80, it.minPrice < 0 ? "" : String.valueOf(it.minPrice), s -> it.minPrice = s.isEmpty() ? -1 : num(s, it.minPrice));
             numField(fx, base + 64, 80, it.undercut < 0 ? "" : String.valueOf(it.undercut), s -> it.undercut = s.isEmpty() ? -1 : num(s, it.undercut));
         } else if (tab == 5) {
+            numField(fx, y0 + 39, 80, String.valueOf(c.dealPercent), s -> c.dealPercent = (int) Math.min(num(s, c.dealPercent), 99));
+        } else if (tab == 6) {
             textField(cx, y0 + 100, cw, 200, c.discordWebhook, s -> c.discordWebhook = s.trim());
         }
     }
@@ -103,6 +171,16 @@ public class DonutBedScreen extends Screen {
         TextFieldWidget f = new TextFieldWidget(textRenderer, x, y, w, 18, Text.empty());
         f.setMaxLength(15);
         f.setTextPredicate(s -> s.matches("\\d*"));
+        f.setText(value);
+        f.setChangedListener(onChange);
+        addDrawableChild(f);
+        fields.add(f);
+    }
+
+    private void decField(int x, int y, int w, String value, Consumer<String> onChange) {
+        TextFieldWidget f = new TextFieldWidget(textRenderer, x, y, w, 18, Text.empty());
+        f.setMaxLength(6);
+        f.setTextPredicate(s -> s.matches("\\d{0,2}(\\.\\d{0,2})?"));
         f.setText(value);
         f.setChangedListener(onChange);
         addDrawableChild(f);
@@ -134,6 +212,12 @@ public class DonutBedScreen extends Screen {
             close();
             return true;
         }
+        if (!typing && keyCode >= GLFW.GLFW_KEY_1 && keyCode < GLFW.GLFW_KEY_1 + TABS.length) {
+            tab = keyCode - GLFW.GLFW_KEY_1;
+            page = 0;
+            reopen();
+            return true;
+        }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
@@ -153,7 +237,7 @@ public class DonutBedScreen extends Screen {
         return super.mouseClicked(mx, my, button);
     }
 
-    // ------------------------------------------------------------ drawing helpers
+    // ------------------------------------------------------------ helpers
 
     private static boolean in(int mx, int my, int x, int y, int w, int h) {
         return mx >= x && mx < x + w && my >= y && my < y + h;
@@ -177,6 +261,30 @@ public class DonutBedScreen extends Screen {
         return r;
     }
 
+    private static int alpha(int rgb, int a) {
+        return (Math.max(0, Math.min(255, a)) << 24) | (rgb & 0xFFFFFF);
+    }
+
+    private static float ease(float p) {
+        float q = 1f - Math.max(0f, Math.min(1f, p));
+        return 1f - q * q * q;
+    }
+
+    private static float anim(String key, float target, float speed) {
+        float cur = ANIM.getOrDefault(key, target);
+        cur += (target - cur) * speed;
+        ANIM.put(key, cur);
+        return cur;
+    }
+
+    private static long animNum(String key, long target) {
+        double cur = NUMS.getOrDefault(key, (double) target);
+        cur += (target - cur) * 0.18;
+        if (Math.abs(target - cur) < 1) cur = target;
+        NUMS.put(key, cur);
+        return Math.round(cur);
+    }
+
     /** Rectangle with softly cut corners. Opaque colors only. */
     private static void rrect(DrawContext g, int x, int y, int w, int h, int color) {
         g.fill(x + 2, y, x + w - 2, y + 1, color);
@@ -184,6 +292,26 @@ public class DonutBedScreen extends Screen {
         g.fill(x, y + 2, x + w, y + h - 2, color);
         g.fill(x + 1, y + h - 2, x + w - 1, y + h - 1, color);
         g.fill(x + 2, y + h - 1, x + w - 2, y + h, color);
+    }
+
+    private void bitmap(DrawContext g, String[] rows, int x, int y, int color) {
+        for (int r = 0; r < rows.length; r++) {
+            String row = rows[r];
+            for (int cc = 0; cc < row.length(); cc++) {
+                if (row.charAt(cc) == '#') g.fill(x + cc, y + r, x + cc + 1, y + r + 1, color);
+            }
+        }
+    }
+
+    private void drawDonut(DrawContext g, int x, int y) {
+        bitmap(g, DONUT, x, y, 0xFFFF8CC6);
+        // sprinkles
+        g.fill(x + 3, y + 1, x + 4, y + 2, 0xFFFFFFFF);
+        g.fill(x + 7, y + 2, x + 8, y + 3, 0xFFFFE066);
+        g.fill(x + 1, y + 4, x + 2, y + 5, 0xFF66E0FF);
+        g.fill(x + 8, y + 5, x + 9, y + 6, 0xFFFFFFFF);
+        g.fill(x + 2, y + 7, x + 3, y + 8, 0xFFFFE066);
+        g.fill(x + 6, y + 8, x + 7, y + 9, 0xFF66E0FF);
     }
 
     private void txt(DrawContext g, String s, int x, int y, int color) {
@@ -206,41 +334,48 @@ public class DonutBedScreen extends Screen {
     private void button(DrawContext g, int mx, int my, int x, int y, int w, int h,
                         String label, int top1, int bottom1, Runnable action) {
         boolean hov = in(mx, my, x, y, w, h);
-        int d = hov ? 28 : 0;
+        float hv = anim("btn" + x + "_" + y, hov ? 1f : 0f, 0.3f);
+        int d = Math.round(hv * 34);
         rrect(g, x, y, w, h, shade(bottom1, -40 + d));
         g.fillGradient(x + 1, y + 1, x + w - 1, y + h - 1, shade(top1, d), shade(bottom1, d));
+        g.fill(x + 2, y + 1, x + w - 2, y + 2, alpha(0xFFFFFF, 30 + Math.round(hv * 40)));
         g.drawCenteredTextWithShadow(textRenderer, Text.literal(label), x + w / 2, y + (h - 8) / 2, 0xFFFFFFFF);
         hits.add(new Hit(x, y, w, h, action));
     }
 
     private void smallButton(DrawContext g, int mx, int my, int x, int y, int w, int h, String label, boolean active, Runnable action) {
-        button(g, mx, my, x, y, w, h, label, active ? 0xFF4C8DFF : 0xFF3A3F5C, active ? 0xFF2A56B8 : 0xFF262A44, action);
+        button(g, mx, my, x, y, w, h, label, active ? acc() : 0xFF3A3F5C, active ? shade(acc(), -75) : 0xFF262A44, action);
+    }
+
+    private void fieldRow(DrawContext g, int mx, int my, int x, int y, int w, int h, String label) {
+        boolean hov = in(mx, my, x, y, w, h);
+        rrect(g, x, y, w, h, hov ? 0xFF202448 : 0xFF1A1D33);
+        if (hov) g.fill(x + 1, y + 3, x + 3, y + h - 3, acc());
+        txt(g, label, x + 8, y + (h - 8) / 2 + 1, 0xFFE6E8FF);
+        if (hov && TIPS.containsKey(label)) tip = TIPS.get(label);
     }
 
     private void toggleRow(DrawContext g, int mx, int my, int x, int y, int w,
                            String label, boolean val, Runnable click) {
         boolean hov = in(mx, my, x, y, w, 20);
         rrect(g, x, y, w, 20, hov ? 0xFF22264A : 0xFF1A1D33);
+        if (hov) g.fill(x + 1, y + 3, x + 3, y + 17, acc());
         txt(g, label, x + 8, y + 6, 0xFFE6E8FF);
-        float cur = ANIM.getOrDefault(label, val ? 1f : 0f);
-        cur += ((val ? 1f : 0f) - cur) * 0.25f;
-        ANIM.put(label, cur);
+        float cur = anim("tg" + label, val ? 1f : 0f, 0.25f);
         int tx = x + w - 36, ty = y + 4;
+        if (cur > 0.05f) rrect(g, tx - 1, ty - 1, 30, 14, lerp(0xFF1A1D33, 0xFF1E5A3E, cur));
         rrect(g, tx, ty, 28, 12, lerp(0xFF3A3F5C, 0xFF2FBF71, cur));
         rrect(g, tx + 2 + Math.round(cur * 16), ty + 2, 8, 8, 0xFFFFFFFF);
+        if (hov && TIPS.containsKey(label)) tip = TIPS.get(label);
         hits.add(new Hit(x, y, w, 20, click));
     }
 
     private void card(DrawContext g, int x, int y, int w, int h, String label, String value, int vcolor) {
         rrect(g, x, y, w, h, 0xFF1A1D33);
+        g.fillGradient(x + 1, y + 2, x + w - 1, y + 10, alpha(vcolor, 28), alpha(vcolor, 0));
         g.fill(x + 1, y + 3, x + 3, y + h - 3, vcolor);
         txt(g, label, x + 8, y + 6, 0xFF8A90B8);
         txt(g, textRenderer.trimToWidth(value, w - 12), x + 8, y + h - 14, vcolor);
-    }
-
-    private void labelRow(DrawContext g, int y, String label) {
-        rrect(g, cx, y, cw, 20, 0xFF1A1D33);
-        txt(g, label, cx + 8, y + 6, 0xFFE6E8FF);
     }
 
     private static String money(long v) {
@@ -270,73 +405,194 @@ public class DonutBedScreen extends Screen {
         return base;
     }
 
+    private void spinner(DrawContext g, int cxp, int cyp, int r, int color) {
+        int n = 10;
+        int head = (int) ((System.currentTimeMillis() / 90) % n);
+        for (int i = 0; i < n; i++) {
+            double ang = Math.PI * 2 * i / n;
+            int x = cxp + (int) Math.round(Math.cos(ang) * r);
+            int y = cyp + (int) Math.round(Math.sin(ang) * r);
+            int d = (head - i + n) % n;
+            float f = 1f - d / (float) n;
+            g.fill(x - 1, y - 1, x + 1, y + 1, alpha(color, 50 + Math.round(205 * f)));
+        }
+    }
+
+    private void sparkline(DrawContext g, int x, int y, int w, int h) {
+        List<Profit.Entry> list = Profit.entries();
+        int n = Math.min(24, list.size());
+        if (n < 2) {
+            g.fill(x, y + h / 2, x + w, y + h / 2 + 1, 0xFF2B2F52);
+            return;
+        }
+        long[] cum = new long[n];
+        long run = 0;
+        for (int i = 0; i < n; i++) {
+            run += list.get(list.size() - n + i).profit;
+            cum[i] = run;
+        }
+        long lo = Long.MAX_VALUE, hi = Long.MIN_VALUE;
+        for (long v : cum) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+        if (hi == lo) { hi++; lo--; }
+        int color = profitColor(cum[n - 1] - cum[0]);
+        int prev = -1;
+        for (int col = 0; col < w; col++) {
+            double f = col * (n - 1) / (double) Math.max(1, w - 1);
+            int i = (int) f;
+            double frac = f - i;
+            double v = cum[i] + (cum[Math.min(i + 1, n - 1)] - cum[i]) * frac;
+            int py = y + h - 1 - (int) Math.round((v - lo) / (double) (hi - lo) * (h - 1));
+            g.fill(x + col, py, x + col + 1, y + h, alpha(color, 36));
+            int a = prev < 0 ? py : Math.min(py, prev);
+            int b = (prev < 0 ? py : Math.max(py, prev)) + 1;
+            g.fill(x + col, a, x + col + 1, b + 1, color);
+            prev = py;
+        }
+    }
+
     // ------------------------------------------------------------ rendering
 
     @Override
     public void renderBackground(DrawContext g, int mx, int my, float delta) {
-        super.renderBackground(g, mx, my, delta);
-        for (int i = 1; i <= 5; i++) {
-            g.fill(left - i, top - i, left + W + i, top + H + i, 0x0C000000);
+        // (no vanilla blur: we draw our own backdrop in render())
+        long t = System.currentTimeMillis();
+        for (int i = 1; i <= 6; i++) {
+            g.fill(left - i, top - i, left + W + i, top + H + i, alpha(0x000000, 14));
         }
-        rrect(g, left - 1, top - 1, W + 2, H + 2, 0xFF2B2F52);
-        g.fillGradient(left, top, left + W, top + H, 0xFA171A2E, 0xFA0B0C16);
+        float glow = 0.5f + 0.5f * (float) Math.sin(t / 700.0);
+        rrect(g, left - 1, top - 1, W + 2, H + 2, lerp(shade(acc(), -90), shade(acc(), -25), glow));
+        g.fillGradient(left, top, left + W, top + H, 0xFA171A2E, 0xFA0A0B15);
+
+        // drifting particles
+        for (int i = 0; i < 30; i++) {
+            int px = left + SIDE + 4 + (int) ((i * 61L) % (W - SIDE - 8)) + (int) Math.round(Math.sin(t / 900.0 + i) * 6);
+            int span = H - 34;
+            int py = top + H - (int) (((t / (22 + (i % 7) * 9)) + i * 53L) % span);
+            int size = (i % 3 == 0) ? 2 : 1;
+            if (px < left + SIDE + 2 || px > left + W - 4) continue;
+            g.fill(px, py, px + size, py + size, alpha(i % 2 == 0 ? acc() : 0xFFFFFF, i % 2 == 0 ? 70 : 36));
+        }
     }
 
     @Override
     public void render(DrawContext g, int mx, int my, float delta) {
         hits.clear();
+        tip = null;
+        long now = System.currentTimeMillis();
+
+        // backdrop (vignette)
+        g.fillGradient(0, 0, width, height, 0xB4090A14, 0xD2030308);
+
+        float p = openAt == 0 ? 1f : Math.min(1f, (now - openAt) / 240f);
+        boolean opening = p < 1f;
+        for (TextFieldWidget f : fields) f.visible = !opening;
+
+        var m = g.getMatrices();
+        m.push();
+        if (opening) {
+            float s = 0.9f + 0.1f * ease(p);
+            m.translate(width / 2f, height / 2f, 0);
+            m.scale(s, s, 1f);
+            m.translate(-width / 2f, -height / 2f, 0);
+        }
+
         super.render(g, mx, my, delta);
         drawChrome(g, mx, my);
         switch (tab) {
             case 0 -> renderDashboard(g, mx, my);
-            case 1 -> renderSettings(g, mx, my);
+            case 1 -> renderPricing(g, mx, my);
             case 2 -> renderScan(g, mx, my);
             case 3 -> renderItems(g, mx, my);
             case 4 -> renderPrices(g, mx, my);
-            case 5 -> renderAlerts(g, mx, my);
-            case 6 -> renderProfit(g, mx, my);
+            case 5 -> renderDeals(g, mx, my);
+            case 6 -> renderAlerts(g, mx, my);
+            case 7 -> renderProfit(g, mx, my);
             default -> renderHistory(g, mx, my);
+        }
+
+        // fade-in when switching tabs
+        float tf = Math.min(1f, (now - tabSwitchAt) / 200f);
+        if (tf < 1f) {
+            g.fill(cx - 6, top + 31, left + W, top + H, (((int) ((1f - tf) * 235)) << 24) | 0x121428);
+        }
+        if (opening) g.fill(left - 8, top - 8, left + W + 8, top + H + 8, ((int) ((1f - p) * 200) << 24) | 0x05060C);
+        m.pop();
+
+        // tooltip
+        if (tip != null && !opening) {
+            int tw = textRenderer.getWidth(tip) + 12;
+            int tx = Math.min(mx + 10, width - tw - 4);
+            int ty = Math.min(my + 12, height - 20);
+            rrect(g, tx - 1, ty - 1, tw + 2, 18, acc());
+            rrect(g, tx, ty, tw, 16, 0xFF0E1020);
+            txt(g, tip, tx + 6, ty + 4, 0xFFE6E8FF);
         }
     }
 
     private void drawChrome(DrawContext g, int mx, int my) {
-        g.fillGradient(left, top, left + W, top + 28, 0xFF2E58B8, 0xFF182244);
-        big(g, "DONUT BED CLIENT", left + 10, top + 9, 1.25f, 0xFFFFFFFF);
-        txtRight(g, "auto-undercut seller", left + W - 8, top + 10, 0xFFB7C6F5);
-        g.fill(left, top + 28, left + W, top + 30, 0xFF23274A);
-        int seg = left + (int) ((System.currentTimeMillis() / 6) % (W + 80)) - 80;
-        g.fill(Math.max(left, seg), top + 28, Math.min(left + W, seg + 80), top + 30, ACCENT);
+        int a = acc();
+        long t = System.currentTimeMillis();
 
+        // header
+        g.fillGradient(left, top, left + W, top + 28, shade(a, -50), shade(a, -140));
+        float bob = (float) Math.sin(t / 500.0);
+        drawDonut(g, left + 9, top + 9 + Math.round(bob * 0.8f));
+        big(g, "DONUT BED CLIENT", left + 26, top + 9, 1.25f, 0xFFFFFFFF);
+        // theme picker
+        for (int i = 0; i < THEME.length; i++) {
+            int x = left + W - 8 - (THEME.length - i) * 11 + 3;
+            int y = top + 10;
+            boolean sel = Config.INSTANCE.theme == i;
+            boolean hov = in(mx, my, x - 1, y - 1, 10, 10);
+            if (sel) g.fill(x - 1, y - 1, x + 9, y + 9, 0xFFFFFFFF);
+            rrect(g, x, y, 8, 8, hov ? shade(THEME[i], 30) : THEME[i]);
+            if (hov) tip = "Theme: " + THEME_NAMES[i];
+            final int idx = i;
+            hits.add(new Hit(x - 1, y - 1, 10, 10, () -> { Config.INSTANCE.theme = idx; Config.INSTANCE.save(); }));
+        }
+        g.fill(left, top + 28, left + W, top + 30, 0xFF23274A);
+        int seg = left + (int) ((t / 6) % (W + 80)) - 80;
+        g.fill(Math.max(left, seg), top + 28, Math.min(left + W, seg + 80), top + 30, a);
+
+        // sidebar
         g.fill(left, top + 30, left + SIDE, top + H, 0xFF0D0E1A);
         g.fill(left + SIDE, top + 30, left + SIDE + 1, top + H, 0xFF23274A);
+
+        float target = top + 34 + tab * 19;
+        tabHiY = tabHiY < 0 ? target : tabHiY + (target - tabHiY) * 0.3f;
+        rrect(g, left + 4, Math.round(tabHiY), SIDE - 8, 17, 0xFF1D2347);
+        g.fill(left + 4, Math.round(tabHiY) + 3, left + 6, Math.round(tabHiY) + 14, a);
+
         for (int i = 0; i < TABS.length; i++) {
-            int x = left + 4, y = top + 35 + i * 20, w = SIDE - 8;
+            int x = left + 4, y = top + 34 + i * 19, w = SIDE - 8;
             boolean sel = tab == i;
-            boolean hov = in(mx, my, x, y, w, 18);
-            if (sel) rrect(g, x, y, w, 18, 0xFF1D2347);
-            else if (hov) rrect(g, x, y, w, 18, 0xFF151833);
-            if (sel) g.fill(x, y + 3, x + 2, y + 15, ACCENT);
-            txt(g, TABS[i], x + 10, y + 5, sel ? 0xFFFFFFFF : 0xFF8A90B8);
+            boolean hov = in(mx, my, x, y, w, 17);
+            if (hov && !sel) rrect(g, x, y, w, 17, 0xFF151833);
+            int ic = sel ? a : (hov ? 0xFFC8CCE8 : 0xFF6C7298);
+            bitmap(g, ICONS[i], x + 6, y + 4, ic);
+            txt(g, TABS[i], x + 18, y + 5, sel ? 0xFFFFFFFF : (hov ? 0xFFDDE0F5 : 0xFF8A90B8));
             final int idx = i;
-            hits.add(new Hit(x, y, w, 18, () -> {
+            hits.add(new Hit(x, y, w, 17, () -> {
                 tab = idx;
                 page = 0;
                 reopen();
             }));
         }
 
+        // sidebar footer
         AutoSeller.Status st = AutoSeller.status;
         int fy = top + H - 38;
         g.fill(left + 8, fy - 6, left + SIDE - 8, fy - 5, 0xFF23274A);
         rrect(g, left + 8, fy + 2, 6, 6, pulsing(st));
         txt(g, st.name().replace('_', ' '), left + 18, fy, statusColor(st));
         txt(g, "Total", left + 8, fy + 13, 0xFF6C7298);
-        long total = Profit.total();
+        long total = animNum("sideTotal", Profit.total());
         txt(g, textRenderer.trimToWidth(Profit.compactSigned(total), SIDE - 14), left + 8, fy + 23, profitColor(total));
     }
 
     private void title(DrawContext g, String s, int y) {
         big(g, s, cx, y, 1.3f, 0xFFFFFFFF);
+        g.fill(cx, y + 12, cx + 22, y + 13, acc());
     }
 
     // ---- dashboard
@@ -347,60 +603,84 @@ public class DonutBedScreen extends Screen {
         int y0 = top + 36;
         title(g, "Dashboard", y0);
 
-        int y = y0 + 18;
-        rrect(g, cx, y, cw, 46, 0xFF1A1D33);
-        g.fill(cx + 1, y + 3, cx + 4, y + 43, statusColor(st));
+        // status card
+        int y = y0 + 17;
+        rrect(g, cx, y, cw, 44, 0xFF1A1D33);
+        g.fillGradient(cx + 1, y + 1, cx + cw - 1, y + 22, alpha(statusColor(st), 26), alpha(statusColor(st), 0));
+        g.fill(cx + 1, y + 3, cx + 4, y + 41, statusColor(st));
         rrect(g, cx + 12, y + 9, 8, 8, pulsing(st));
         big(g, st.name().replace('_', ' '), cx + 26, y + 8, 1.4f, statusColor(st));
-        txtRight(g, "Item: " + AutoSeller.currentName, cx + cw - 8, y + 10, 0xFF8A90B8);
-        txt(g, textRenderer.trimToWidth(AutoSeller.message, cw - 20), cx + 12, y + 30,
+        txt(g, "Item: " + AutoSeller.currentName, cx + 12, y + 29, 0xFF8A90B8);
+        if (st == AutoSeller.Status.SCANNING || st == AutoSeller.Status.SELLING || st == AutoSeller.Status.PRICE_FOUND) {
+            spinner(g, cx + cw - 26, y + 22, 9, statusColor(st));
+        } else {
+            sparkline(g, cx + cw - 100, y + 8, 88, 28);
+        }
+        txt(g, textRenderer.trimToWidth(AutoSeller.message, cw), cx + 2, y + 48,
                 st == AutoSeller.Status.ERROR ? 0xFFFF8D90 : 0xFFA6ABCB);
 
-        y += 54;
+        // stat cards
+        y += 62;
         int cwid = (cw - 8) / 3;
-        card(g, cx, y, cwid, 36, "MARKET PRICE", money(AutoSeller.cheapest), 0xFFFFFFFF);
-        card(g, cx + cwid + 4, y, cwid, 36, "SELLING AT", money(AutoSeller.sellPrice), 0xFF4DD8FF);
-        long total = Profit.total();
-        card(g, cx + 2 * (cwid + 4), y, cwid, 36, "PROFIT", Profit.compactSigned(total), profitColor(total));
+        card(g, cx, y, cwid, 34, "MARKET PRICE", money(AutoSeller.cheapest), 0xFFFFFFFF);
+        card(g, cx + cwid + 4, y, cwid, 34, "SELLING AT", money(AutoSeller.sellPrice), 0xFF4DD8FF);
+        long total = animNum("dashTotal", Profit.total());
+        card(g, cx + 2 * (cwid + 4), y, cwid, 34, "PROFIT", Profit.compactSigned(total), profitColor(total));
 
-        y += 44;
+        // start / stop
+        y += 40;
         boolean on = c.enabled;
-        button(g, mx, my, cx, y, cw, 28, on ? "STOP" : "START",
+        if (on) {
+            float glow = 0.5f + 0.5f * (float) Math.sin(System.currentTimeMillis() / 300.0);
+            rrect(g, cx - 2, y - 2, cw + 4, 30, lerp(0xFF1A1D33, 0xFF7A2A30, 0.4f + glow * 0.6f));
+        }
+        button(g, mx, my, cx, y, cw, 26, on ? "STOP" : "START",
                 on ? 0xFFEF5358 : 0xFF38CC7B, on ? 0xFF9E2B30 : 0xFF1C8A50, () -> {
                     c.enabled = !c.enabled;
                     c.save();
                     if (c.enabled) close();
                 });
 
-        y += 36;
-        int enabledCount = 0;
-        for (Config.ItemCfg it : c.items) if (it.enabled) enabledCount++;
-        txt(g, "Auto Sell: " + (c.autoSell ? "ON" : "OFF") + "   Auto-pick: " + (c.autoPickBed ? "ON" : "OFF")
-                + "   Outlier guard: " + (c.outlierProtect ? "ON" : "OFF"), cx, y, 0xFF8A90B8);
-        txt(g, enabledCount + " item(s) rotating   Undercut " + Profit.money(c.undercut) + "   Min " + Profit.money(c.minPrice),
-                cx, y + 12, 0xFF8A90B8);
-        txt(g, "Menu key: " + DonutBedClient.openKey.getBoundKeyLocalizedText().getString(), cx, y + 24, 0xFF6C7298);
+        // quick toggles
+        y += 32;
+        int hw = (cw - 4) / 2;
+        toggleRow(g, mx, my, cx, y, hw, "Auto Sell", c.autoSell, () -> { c.autoSell = !c.autoSell; c.save(); });
+        toggleRow(g, mx, my, cx + hw + 4, y, hw, "Auto-pick", c.autoPickBed, () -> { c.autoPickBed = !c.autoPickBed; c.save(); });
+
+        // cooldown bar
+        y += 26;
+        long now = System.currentTimeMillis();
+        long remaining = Math.max(0, AutoSeller.nextAllowed - now);
+        float frac = c.enabled && c.cooldownMs > 0 ? 1f - Math.min(1f, remaining / (float) c.cooldownMs) : 0f;
+        rrect(g, cx, y, cw, 6, 0xFF12142A);
+        if (frac > 0.02f) {
+            g.fillGradient(cx + 1, y + 1, cx + 1 + Math.round((cw - 2) * frac), y + 5, acc(), shade(acc(), -80));
+        }
+        txt(g, c.enabled ? (remaining > 0 ? "Next cycle in " + String.format("%.1fs", remaining / 1000.0) : "Ready")
+                : "Stopped - press START", cx, y + 9, 0xFF6C7298);
+        txtRight(g, "Keys 1-9 switch tabs", cx + cw, y + 9, 0xFF4A5078);
     }
 
-    // ---- settings
+    // ---- pricing
 
-    private void renderSettings(DrawContext g, int mx, int my) {
+    private void renderPricing(DrawContext g, int mx, int my) {
         Config c = Config.INSTANCE;
         int y0 = top + 36;
-        title(g, "Settings", y0);
-
+        title(g, "Pricing", y0);
         int y = y0 + 16;
-        toggleRow(g, mx, my, cx, y, cw, "Auto Sell", c.autoSell, () -> { c.autoSell = !c.autoSell; c.save(); });
-        toggleRow(g, mx, my, cx, y + 21, cw, "Auto-pick item from inventory", c.autoPickBed, () -> { c.autoPickBed = !c.autoPickBed; c.save(); });
-        toggleRow(g, mx, my, cx, y + 42, cw, "Outlier protection", c.outlierProtect, () -> { c.outlierProtect = !c.outlierProtect; c.save(); });
+        toggleRow(g, mx, my, cx, y, cw, "Percent undercut", c.undercutMode == 1, () -> { c.undercutMode = c.undercutMode == 1 ? 0 : 1; c.save(); });
+        toggleRow(g, mx, my, cx, y + 22, cw, "Outlier protection", c.outlierProtect, () -> { c.outlierProtect = !c.outlierProtect; c.save(); });
 
-        String[] labels = { "Default undercut ($)", "Default minimum price ($)", "Lowball threshold (%)",
-                "Scan delay (ms)", "Auction timeout (s)", "Cooldown (s)" };
-        int base = y + 3 * 21 + 4;
-        for (int i = 0; i < labels.length; i++) {
-            rrect(g, cx, base + i * 20, cw, 19, 0xFF1A1D33);
-            txt(g, labels[i], cx + 8, base + i * 20 + 6, 0xFFE6E8FF);
-        }
+        String[] labels = { "Flat undercut ($)", "Percent undercut (%)", "Minimum price ($)", "Min profit per item ($)", "Lowball threshold (%)" };
+        int base = y + 2 * 22 + 4;
+        for (int i = 0; i < labels.length; i++) fieldRow(g, mx, my, cx, base + i * 21, cw, 20, labels[i]);
+
+        // live preview
+        long sample = 25000;
+        long under = c.undercutMode == 1 ? Math.max(1, Math.round(sample * c.undercutPercent / 100.0)) : c.undercut;
+        int py = base + 5 * 21 + 3;
+        rrect(g, cx, py, cw, 20, 0xFF12142A);
+        txt(g, "Preview: market $25,000  ->  list at " + Profit.money(sample - under), cx + 8, py + 6, 0xFF4DD8FF);
     }
 
     // ---- scan
@@ -414,20 +694,10 @@ public class DonutBedScreen extends Screen {
         toggleRow(g, mx, my, cx, y + 22, cw, "Per-item pricing (stacks)", c.perItemPrice, () -> { c.perItemPrice = !c.perItemPrice; c.save(); });
         toggleRow(g, mx, my, cx, y + 44, cw, "Debug messages in chat", c.debug, () -> { c.debug = !c.debug; c.save(); });
 
-        rrect(g, cx, y0 + 16 + 3 * 22 + 4, cw, 19, 0xFF1A1D33);
-        txt(g, "Max pages to read", cx + 8, y0 + 16 + 3 * 22 + 10, 0xFFE6E8FF);
-
-        int ty = y0 + 16 + 3 * 22 + 32;
-        String[] lines = {
-                "Auto sort: clicks the auction's sort button until",
-                "prices run lowest-first, then trusts page 1.",
-                "If it can't sort, it reads up to the max pages",
-                "and takes the true cheapest across all of them.",
-                "Per-item: stack price divided by stack size.",
-                "Debug: shows exactly what price it read, and",
-                "from which tooltip line, every round."
-        };
-        for (int i = 0; i < lines.length; i++) txt(g, lines[i], cx, ty + i * 11, 0xFF8A90B8);
+        String[] labels = { "Max pages to read", "Scan delay (ms)", "Auction timeout (s)", "Cooldown (s)" };
+        int base = y + 3 * 22 + 4;
+        for (int i = 0; i < labels.length; i++) fieldRow(g, mx, my, cx, base + i * 21, cw, 20, labels[i]);
+        txt(g, "Tip: hover any row for a description.", cx, base + 4 * 21 + 6, 0xFF4A5078);
     }
 
     // ---- items
@@ -440,7 +710,6 @@ public class DonutBedScreen extends Screen {
         int n = items.size();
         Config.ItemCfg it = selItem();
 
-        // selector
         int sy = y0 + 16;
         smallButton(g, mx, my, cx, sy, 24, 20, "<", true, () -> { itemSel = (itemSel - 1 + n) % n; reopen(); });
         smallButton(g, mx, my, cx + cw - 24, sy, 24, 20, ">", true, () -> { itemSel = (itemSel + 1) % n; reopen(); });
@@ -457,14 +726,10 @@ public class DonutBedScreen extends Screen {
 
         int base = y0 + 84;
         String[] labels = { "Search term (/ah ...)", "Cost per item ($)", "Minimum price ($)", "Undercut ($)" };
-        for (int i = 0; i < labels.length; i++) {
-            rrect(g, cx, base + i * 21, cw, 20, 0xFF1A1D33);
-            txt(g, labels[i], cx + 8, base + i * 21 + 6, 0xFFE6E8FF);
-        }
-        // "global" hints when empty
+        for (int i = 0; i < labels.length; i++) fieldRow(g, mx, my, cx, base + i * 21, cw, 20, labels[i]);
         int fx = cx + cw - 86;
-        if (it.minPrice < 0) txt(g, "global", fx + 6, base + 2 * 21 + 6, 0xFF5A6088);
-        if (it.undercut < 0) txt(g, "global", fx + 6, base + 3 * 21 + 6, 0xFF5A6088);
+        if (it.minPrice < 0) txt(g, "default", fx + 6, base + 2 * 21 + 6, 0xFF5A6088);
+        if (it.undercut < 0) txt(g, "default", fx + 6, base + 3 * 21 + 6, 0xFF5A6088);
 
         int by = y0 + 172;
         smallButton(g, mx, my, cx, by, 140, 18, "+ Add item in hand", true, () -> addHeld(c));
@@ -479,7 +744,7 @@ public class DonutBedScreen extends Screen {
                 });
 
         boolean showNote = System.currentTimeMillis() < noteUntil;
-        txt(g, showNote ? note : "Items rotate each round. Empty = use the Settings default.", cx, y0 + 194,
+        txt(g, showNote ? note : "Items rotate each round. Empty = use the Pricing default.", cx, y0 + 194,
                 showNote ? 0xFFFFD84D : 0xFF6C7298);
     }
 
@@ -602,23 +867,30 @@ public class DonutBedScreen extends Screen {
             g.fill(ix, gy, ix + iw, gy + 1, 0xFF1E2140);
         }
 
-        int j = 0, prevPy = -1;
+        int a = acc();
+        int j = 0, prevPy = -1, lastPy = bot;
         for (int col = 0; col < iw; col++) {
             long t = tmin + (tmax - tmin) * col / Math.max(1, iw - 1);
             while (j < pts.size() - 2 && pts.get(j + 1).t <= t) j++;
             double v = pts.size() == 1 ? pts.get(0).p : interp(pts, j, t);
             int py = bot - (int) Math.round((v - vmin) / (double) (vmax - vmin) * ih);
-            g.fill(ix + col, py, ix + col + 1, bot, 0x224C8DFF);
-            int a = prevPy < 0 ? py : Math.min(py, prevPy);
-            int b = (prevPy < 0 ? py : Math.max(py, prevPy)) + 2;
-            g.fill(ix + col, a, ix + col + 1, b, 0xFF6EA8FF);
+            g.fillGradient(ix + col, py, ix + col + 1, bot, alpha(a, 70), alpha(a, 0));
+            int lo2 = prevPy < 0 ? py : Math.min(py, prevPy);
+            int hi2 = (prevPy < 0 ? py : Math.max(py, prevPy)) + 2;
+            g.fill(ix + col, lo2, ix + col + 1, hi2, shade(a, 60));
             prevPy = py;
+            lastPy = py;
         }
+
+        // pulsing marker on the latest point
+        float pulse = 0.5f + 0.5f * (float) Math.sin(System.currentTimeMillis() / 300.0);
+        int mxp = ix + iw - 1;
+        g.fill(mxp - 3, lastPy - 2, mxp + 2, lastPy + 4, alpha(a, 40 + Math.round(pulse * 80)));
+        g.fill(mxp - 1, lastPy, mxp + 1, lastPy + 2, 0xFFFFFFFF);
 
         txt(g, Profit.compact(realMax), ix + 2, y + 4, 0xFF8A90B8);
         txt(g, Profit.compact(realMin), ix + 2, bot - 10, 0xFF8A90B8);
 
-        // hover readout
         if (in(mx, my, ix, y, iw, h)) {
             int col = mx - ix;
             long t = tmin + (tmax - tmin) * col / Math.max(1, iw - 1);
@@ -629,6 +901,43 @@ public class DonutBedScreen extends Screen {
             txtRight(g, PriceLog.shortDate(t) + "  " + Profit.compact(Math.round(v)), x + w - 6, y + 4, 0xFFFFFFFF);
         } else {
             txtRight(g, pts.size() + " points", x + w - 6, y + 4, 0xFF6C7298);
+        }
+    }
+
+    // ---- deals
+
+    private void renderDeals(DrawContext g, int mx, int my) {
+        Config c = Config.INSTANCE;
+        int y0 = top + 36;
+        title(g, "Deals", y0);
+        smallButton(g, mx, my, cx + cw - 50, y0 + 1, 50, 14, "Clear", false, () -> Deals.clear());
+
+        toggleRow(g, mx, my, cx, y0 + 16, cw, "Deal finder", c.dealFinder, () -> { c.dealFinder = !c.dealFinder; c.save(); });
+        fieldRow(g, mx, my, cx, y0 + 38, cw, 20, "Min discount (%)");
+
+        txt(g, "TIME", cx + 4, y0 + 64, acc());
+        txt(g, "ITEM", cx + 64, y0 + 64, acc());
+        txt(g, "PRICE", cx + 106, y0 + 64, acc());
+        txt(g, "RESELL", cx + 156, y0 + 64, acc());
+        txtRight(g, "PROFIT", cx + cw - 4, y0 + 64, acc());
+        g.fill(cx, y0 + 75, cx + cw, y0 + 76, 0xFF2B2F52);
+
+        List<Deals.Entry> list = Deals.entries();
+        if (list.isEmpty()) {
+            txt(g, "No deals yet. Listings far below market show up here.", cx + 4, y0 + 88, 0xFF8A90B8);
+            txt(g, "Tip: turn Auto Sell OFF to just hunt for deals.", cx + 4, y0 + 100, 0xFF6C7298);
+        }
+        for (int i = 0; i < 9; i++) {
+            int idx = list.size() - 1 - i;
+            if (idx < 0) break;
+            Deals.Entry e = list.get(idx);
+            int y = y0 + 79 + i * 13;
+            if (i % 2 == 0) g.fill(cx, y - 1, cx + cw, y + 11, 0xFF161930);
+            txt(g, Deals.time(e.time), cx + 4, y + 1, 0xFFDDE0F5);
+            txt(g, textRenderer.trimToWidth(e.item, 38), cx + 64, y + 1, 0xFFB7C6F5);
+            txt(g, Profit.compact(e.price), cx + 106, y + 1, 0xFFFFFFFF);
+            txt(g, Profit.compact(e.resell), cx + 156, y + 1, 0xFFB7C6F5);
+            txtRight(g, Profit.compactSigned(e.potential), cx + cw - 4, y + 1, 0xFF4DE08A);
         }
     }
 
@@ -647,12 +956,12 @@ public class DonutBedScreen extends Screen {
         if (c.discordWebhook == null || c.discordWebhook.isEmpty()) {
             txt(g, "https://discord.com/api/webhooks/...", cx + 5, y0 + 105, 0xFF4A5078);
         }
-        button(g, mx, my, cx, y0 + 126, cw, 22, "Send test alert", 0xFF4C8DFF, 0xFF2A56B8, () -> {
+        button(g, mx, my, cx, y0 + 126, cw, 22, "Send test alert", acc(), shade(acc(), -75), () -> {
             c.save();
             AutoSeller.testAlert(client);
         });
-        txt(g, "Alerts fire when an item is listed for sale.", cx, y0 + 156, 0xFF6C7298);
-        txt(g, "The webhook sends the same message to your Discord channel.", cx, y0 + 168, 0xFF6C7298);
+        txt(g, "Alerts fire when an item is listed or a deal is found.", cx, y0 + 156, 0xFF6C7298);
+        txt(g, "The webhook sends the same message to Discord.", cx, y0 + 168, 0xFF6C7298);
     }
 
     // ---- profit
@@ -664,7 +973,7 @@ public class DonutBedScreen extends Screen {
         rrect(g, cx, y0 + 16, cw, 20, 0xFF12142A);
         txt(g, "Cost per item is set in the Items tab.", cx + 8, y0 + 22, 0xFF8A90B8);
 
-        long total = Profit.total();
+        long total = animNum("profitTotal", Profit.total());
         txt(g, "TOTAL PROFIT", cx, y0 + 42, 0xFF8A90B8);
         big(g, Profit.signed(total), cx, y0 + 52, 2f, profitColor(total));
 
@@ -684,13 +993,14 @@ public class DonutBedScreen extends Screen {
         long lo = 0, hi = 0;
         for (long v : daily) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
         if (hi == lo) hi = lo + 1;
+        float grow = ease(Math.min(1f, (System.currentTimeMillis() - (openAt == 0 ? tabSwitchAt : openAt)) / 600f));
         float scale = (chartH - 8) / (float) (hi - lo);
         int baseY = chartY + 4 + Math.round(hi * scale);
         int slot = (cw - 8) / 7;
         for (int i = 0; i < 7; i++) {
             int bx = cx + 4 + i * slot + 4;
             int bw = slot - 8;
-            int hgt = Math.round(Math.abs(daily[i]) * scale);
+            int hgt = Math.round(Math.abs(daily[i]) * scale * grow);
             if (daily[i] >= 0) g.fillGradient(bx, baseY - hgt, bx + bw, baseY, 0xFF4DE08A, 0xFF1C8A50);
             else g.fillGradient(bx, baseY, bx + bw, baseY + hgt, 0xFFFF5D62, 0xFF9E2B30);
             String lbl = Profit.dayLabel(6 - i);
@@ -717,10 +1027,10 @@ public class DonutBedScreen extends Screen {
         title(g, "History", y0);
         txtRight(g, Profit.count() + " sales", cx + cw, y0 + 4, 0xFF8A90B8);
 
-        txt(g, "DATE", cx + 4, y0 + 20, ACCENT);
-        txt(g, "ITEM", cx + 108, y0 + 20, ACCENT);
-        txt(g, "LISTED AT", cx + 158, y0 + 20, ACCENT);
-        txtRight(g, "PROFIT", cx + cw - 4, y0 + 20, ACCENT);
+        txt(g, "DATE", cx + 4, y0 + 20, acc());
+        txt(g, "ITEM", cx + 108, y0 + 20, acc());
+        txt(g, "LISTED AT", cx + 158, y0 + 20, acc());
+        txtRight(g, "PROFIT", cx + cw - 4, y0 + 20, acc());
         g.fill(cx, y0 + 31, cx + cw, y0 + 32, 0xFF2B2F52);
 
         List<Profit.Entry> list = Profit.entries();

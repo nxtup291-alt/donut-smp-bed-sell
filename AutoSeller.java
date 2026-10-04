@@ -21,8 +21,10 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 public final class AutoSeller {
     private AutoSeller() {}
@@ -42,7 +44,8 @@ public final class AutoSeller {
 
     private static Config.ItemCfg current = null;
     private static int rot = 0;
-    private static long nextAllowed = 0;
+    public static long nextAllowed = 0;
+    private static final Map<String, Long> dealSeen = new HashMap<>();
     private static long stateStart = 0;
     private static long screenOpenedAt = -1;
     private static boolean sold = false;
@@ -377,6 +380,7 @@ public final class AutoSeller {
         List<Cand> list = new ArrayList<>(acc);
         list.sort(Comparator.comparingLong(Cand::unit));
         int total = list.size();
+        if (c.dealFinder) detectDeals(mc, it, new ArrayList<>(list));
         int lowball = 0;
         if (c.outlierProtect) {
             // Drop absurdly low listings so one troll listing can't drag the price down.
@@ -405,9 +409,9 @@ public final class AutoSeller {
         }
 
         cheapest = ref;
-        long target = ref - c.undercutFor(it);
+        long target = ref - undercutAmount(c, it, ref);
         sellPrice = target;
-        long floor = Math.max(1, c.minFor(it));
+        long floor = Math.max(Math.max(1, c.minFor(it)), it.cost + c.minProfit);
         if (target < floor) {
             // Not an error: skip this round and keep going.
             closeGui(mc);
@@ -424,6 +428,43 @@ public final class AutoSeller {
                 + (accUnpriced > 0 ? " (" + accUnpriced + " unparsed ignored)" : "")
                 + (accOwn > 0 ? " [ignored " + accOwn + " of mine]" : "");
         closeGui(mc);
+    }
+
+    /** How much to undercut by: per-item override, else percent or flat from the settings. */
+    public static long undercutAmount(Config c, Config.ItemCfg it, long ref) {
+        if (it.undercut >= 0) return it.undercut;
+        if (c.undercutMode == 1) return Math.max(1, Math.round(ref * c.undercutPercent / 100.0));
+        return c.undercut;
+    }
+
+    /** Finds listings far below the market and tells you about them (it never buys anything). */
+    private static void detectDeals(MinecraftClient mc, Config.ItemCfg it, List<Cand> sorted) {
+        Config c = Config.INSTANCE;
+        if (sorted.size() < 3) return;
+        long median = sorted.get(sorted.size() / 2).unit();
+        long limit = median * (100 - c.dealPercent) / 100;
+        long resell = median;
+        for (Cand cand : sorted) {
+            if (cand.unit() > limit) { resell = cand.unit(); break; }
+        }
+        long now = System.currentTimeMillis();
+        int alerts = 0;
+        for (Cand cand : sorted) {
+            if (cand.unit() > limit || alerts >= 3) break;
+            long potential = resell - undercutAmount(c, it, resell) - cand.unit();
+            if (potential <= 0) continue;
+            String key = it.name + ":" + cand.raw() + ":" + cand.count();
+            Long seen = dealSeen.get(key);
+            if (seen != null && now - seen < 600_000L) continue;
+            dealSeen.put(key, now);
+            alerts++;
+            Deals.record(it.name, cand.unit(), resell, potential);
+            String msg = "DEAL: " + it.name + " " + Profit.money(cand.unit()) + " (resell ~" + Profit.money(resell)
+                    + ", about +" + Profit.money(potential) + ")";
+            notify(mc, "\u00a7a" + msg);
+            fireAlerts(mc, "DEAL: " + it.name + " " + Profit.money(cand.unit()),
+                    "Resell ~" + Profit.money(resell) + "  |  +" + Profit.money(potential), msg);
+        }
     }
 
     private static void closeGui(MinecraftClient mc) {
