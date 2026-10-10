@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "id": "donutbedclient",
+  "id": "marketscout",
   "version": "${version}",
-  "name": "Donut Bed Client",
-  "description": "Auto-undercut bed seller for the auction house (testing tool).",
+  "name": "Market Scout",
+  "description": "Finds flips on the auction house: price scanning, deal overlay, watchlist alerts and profit tracking.",
   "authors": ["You"],
   "license": "MIT",
   "environment": "client",
-  "entrypoints": { "client": ["com.donutbed.DonutBedClient"] },
+  "entrypoints": { "client": ["com.marketscout.MarketScout"] },
   "depends": {
     "fabricloader": ">=0.16.9",
     "minecraft": "~1.21.4",

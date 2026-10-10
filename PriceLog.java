@@ -1,4 +1,4 @@
-package com.donutbed;
+package com.marketscout;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -16,7 +16,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** Remembers the market price of each item over time. File: config/donut-bed-prices.json */
+/** Remembers the cheapest price of each item over time. File: config/market-scout-prices.json */
 public final class PriceLog {
     private PriceLog() {}
 
@@ -38,7 +38,7 @@ public final class PriceLog {
             DateTimeFormatter.ofPattern("MMM d h:mm a", Locale.US).withZone(ZoneId.systemDefault());
 
     private static Path path() {
-        return FabricLoader.getInstance().getConfigDir().resolve("donut-bed-prices.json");
+        return FabricLoader.getInstance().getConfigDir().resolve("market-scout-prices.json");
     }
 
     public static void load() {
@@ -49,7 +49,7 @@ public final class PriceLog {
                 if (d != null && d.series != null) data = d;
             }
         } catch (Exception e) {
-            System.err.println("[DonutBed] Could not read price log: " + e);
+            System.err.println("[MarketScout] Could not read price log: " + e);
         }
     }
 
@@ -57,7 +57,7 @@ public final class PriceLog {
         try {
             Files.writeString(path(), GSON.toJson(data));
         } catch (Exception e) {
-            System.err.println("[DonutBed] Could not save price log: " + e);
+            System.err.println("[MarketScout] Could not save price log: " + e);
         }
     }
 
