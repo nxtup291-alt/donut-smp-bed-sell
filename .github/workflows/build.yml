@@ -17,5 +17,5 @@ jobs:
       - run: gradle build --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: donut-bed-client-jar
-          path: build/libs/donut-bed-client-1.0.0.jar
+          name: donut-bed-client-v1.2
+          path: build/libs/donut-bed-client-1.2.0.jar
