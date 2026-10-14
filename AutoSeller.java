@@ -54,6 +54,12 @@ public final class AutoSeller {
     private static String lastListedItem = "";
     private static String lastNotified = "";
     private static long invCooldown = 0;
+    private static long lastCmdAt = 0;
+    private static int sellPhase = 0, sellRetries = 0, sentCount = 0, sentSlot = 0;
+    private static long sentTotal = 0, verifyStart = 0, lastMarket = 0;
+    private static boolean confirmClicked = false;
+    private static String cacheItem = "";
+    private static long cacheRef = 0, cacheAt = 0;
 
     // scanning state
     private static final List<Cand> acc = new ArrayList<>();
@@ -83,11 +89,13 @@ public final class AutoSeller {
                 if (it == null) return;
                 if (!it.matches(mc.player.getMainHandStack())) {
                     if (now < invCooldown) return;
-                    invCooldown = now + 400;
+                    invCooldown = now + c.closeWait();
                     message = pick(mc, it) ? "Moved " + it.name + " into your hand" : "No " + it.name + " in your inventory";
                     return;
                 }
                 if (now < invCooldown) return; // let the inventory move sync with the server
+                if (now - lastCmdAt < c.cmdGap()) return;
+                if (tryCachedSell(mc, c, it, now)) return;
                 start(mc, now, it);
             }
             case SCANNING -> {
@@ -108,21 +116,22 @@ public final class AutoSeller {
                         message = "Auction GUI open, scanning...";
                         return;
                     }
-                    if (now - screenOpenedAt >= c.scanDelayMs) scan(mc, h, now);
+                    if (now - screenOpenedAt >= c.scanDelayEff()) scan(mc, h, now);
                 }
             }
             case PRICE_FOUND -> {
-                if (now - stateStart < 400) return; // let the GUI close
+                if (now - stateStart < c.closeWait()) return; // let the GUI close
                 if (!c.autoSell) {
                     if (now - stateStart > 1500) complete("Price found (Auto Sell is OFF, nothing sold)");
                     return;
                 }
                 status = Status.SELLING;
-                sold = false;
+                sellPhase = 0;
+                sellRetries = 0;
                 stateStart = now;
             }
             case SELLING -> {
-                if (!sold) {
+                if (sellPhase == 0) {
                     if (mc.currentScreen != null) {
                         if (now - stateStart > 3000) fail(mc, "Could not close the auction GUI");
                         return;
@@ -132,26 +141,103 @@ public final class AutoSeller {
                         fail(mc, "The item to sell is no longer in your main hand");
                         return;
                     }
-                    if (pendingSell < Math.max(1, c.minFor(current))) {
+                    long floor = Math.max(Math.max(1, c.minFor(current)), current.cost + c.minProfit);
+                    if (pendingSell < floor) {
                         complete("Skipped - price below your minimum");
                         return;
                     }
+                    if (now - lastCmdAt < c.cmdGap()) return; // never spam commands
                     int count = Math.max(1, held.getCount());
                     long total = c.perItemPrice ? pendingSell * count : pendingSell;
                     mc.getNetworkHandler().sendChatCommand("ah sell " + total);
-                    sold = true;
-                    lastListed = total;
-                    lastListedItem = current.name;
-                    stateStart = now;
-                    Profit.Entry e = Profit.record(current.name, total, current.cost * count);
-                    message = "Listed " + (count > 1 ? count + "x " : "") + current.name + " for "
-                            + Profit.money(total) + " (" + Profit.signed(e.profit) + ")";
-                    alertListed(mc, current, total, e);
-                } else if (now - stateStart > 1500) {
-                    complete(message);
+                    lastCmdAt = now;
+                    sellPhase = 1;
+                    sentCount = count;
+                    sentSlot = mc.player.getInventory().selectedSlot;
+                    sentTotal = total;
+                    verifyStart = now;
+                    confirmClicked = false;
+                    message = "Listing " + (count > 1 ? count + "x " : "") + current.name + " for " + Profit.money(total) + "...";
+                } else {
+                    // Verify: the item must actually leave your inventory, otherwise the listing didn't happen.
+                    ItemStack nowStack = mc.player.getInventory().getStack(sentSlot);
+                    boolean gone = !current.matches(nowStack) || nowStack.getCount() < sentCount;
+                    if (!gone && !confirmClicked && mc.currentScreen instanceof HandledScreen<?> hs
+                            && hs.getScreenHandler() instanceof GenericContainerScreenHandler h) {
+                        int idx = findConfirm(mc, h);
+                        if (idx >= 0 && h.getCursorStack().isEmpty() && mc.interactionManager != null) {
+                            confirmClicked = true;
+                            mc.interactionManager.clickSlot(h.syncId, idx, 0, SlotActionType.PICKUP, mc.player);
+                            verifyStart = now;
+                            message = "Confirming listing...";
+                        }
+                    }
+                    if (gone) {
+                        onListed(mc);
+                    } else if (now - verifyStart > c.verifyMs()) {
+                        closeGui(mc);
+                        sellRetries++;
+                        if (sellRetries > 3) {
+                            fail(mc, "Listing did not go through after 3 tries");
+                        } else {
+                            sellPhase = 0;
+                            stateStart = now;
+                            message = "Listing didn't register, retrying (" + sellRetries + "/3)...";
+                        }
+                    }
                 }
             }
         }
+    }
+
+    private static void onListed(MinecraftClient mc) {
+        lastListed = sentTotal;
+        lastListedItem = current.name;
+        Profit.Entry e = Profit.record(current.name, sentTotal, current.cost * sentCount, sentCount, lastMarket);
+        String msg = "Listed " + (sentCount > 1 ? sentCount + "x " : "") + current.name + " for "
+                + Profit.money(sentTotal) + " (" + Profit.signed(e.profit) + ")";
+        alertListed(mc, current, sentTotal, e);
+        complete(msg);
+    }
+
+    /** Looks for a "Confirm" button in a confirmation GUI that opened after /ah sell. */
+    private static int findConfirm(MinecraftClient mc, GenericContainerScreenHandler h) {
+        for (int i = 0; i < h.slots.size(); i++) {
+            Slot s = h.slots.get(i);
+            if (s.inventory instanceof PlayerInventory) continue;
+            ItemStack st = s.getStack();
+            if (st.isEmpty()) continue;
+            String nm = PriceParser.clean(st.getName().getString()).toLowerCase(Locale.ROOT);
+            if (nm.contains("confirm") && !nm.contains("cancel")) return i;
+        }
+        return -1;
+    }
+
+    /** Fast/Turbo: reuse the price from the last scan so extra items list instantly without re-opening /ah. */
+    private static boolean tryCachedSell(MinecraftClient mc, Config c, Config.ItemCfg it, long now) {
+        if (c.speed < 1 || c.priceCacheSec <= 0 || !it.name.equals(cacheItem)) return false;
+        if (now - cacheAt > c.priceCacheSec * 1000L) return false;
+        current = it;
+        currentName = it.name;
+        long ref = cacheRef;
+        lastMarket = ref;
+        cheapest = ref;
+        long target = ref - undercutAmount(c, it, ref);
+        sellPrice = target;
+        long floor = Math.max(Math.max(1, c.minFor(it)), it.cost + c.minProfit);
+        if (target < floor) {
+            status = Status.IDLE;
+            message = "Skipped " + it.name + ": " + Profit.money(target) + " is below your " + Profit.money(floor) + " minimum";
+            nextAllowed = now + c.cooldownEff();
+            return true;
+        }
+        pendingSell = target;
+        status = Status.SELLING;
+        sellPhase = 0;
+        sellRetries = 0;
+        stateStart = now;
+        message = "Turbo: reusing price " + Profit.money(ref);
+        return true;
     }
 
     // ------------------------------------------------------------ item selection
@@ -212,13 +298,13 @@ public final class AutoSeller {
         current = it;
         currentName = it.name;
         if (term.isEmpty()) {
-            nextAllowed = now + c.cooldownMs;
+            nextAllowed = now + c.cooldownEff();
             fail(mc, it.name + " has no search term (set one in the Items tab)");
             return;
         }
         int idx = c.items.indexOf(it);
         rot = (idx + 1) % Math.max(1, c.items.size());
-        nextAllowed = now + c.cooldownMs;           // hard cooldown between auction commands
+        nextAllowed = now + c.cooldownEff();           // hard cooldown between auction commands
         cheapest = -1;
         sellPrice = -1;
         pendingSell = -1;
@@ -234,6 +320,7 @@ public final class AutoSeller {
         awaiting = false;
         status = Status.SCANNING;
         message = "Sent /ah " + term + ", waiting for GUI...";
+        lastCmdAt = now;
         mc.getNetworkHandler().sendChatCommand("ah " + term);
     }
 
@@ -393,6 +480,10 @@ public final class AutoSeller {
         Cand best = list.get(0);
         long ref = best.unit();
         PriceLog.record(it.name, ref);
+        cacheItem = it.name;
+        cacheRef = ref;
+        cacheAt = now;
+        lastMarket = ref;
 
         if (c.debug) {
             StringBuilder sb = new StringBuilder();
@@ -475,13 +566,13 @@ public final class AutoSeller {
         status = Status.IDLE;
         message = msg;
         lastNotified = "";
-        nextAllowed = Math.max(nextAllowed, System.currentTimeMillis() + Config.INSTANCE.cooldownMs);
+        nextAllowed = Math.max(nextAllowed, System.currentTimeMillis() + Config.INSTANCE.cooldownEff());
     }
 
     private static void fail(MinecraftClient mc, String msg) {
         status = Status.ERROR;
         message = msg;
-        nextAllowed = Math.max(nextAllowed, System.currentTimeMillis() + Config.INSTANCE.cooldownMs);
+        nextAllowed = Math.max(nextAllowed, System.currentTimeMillis() + Config.INSTANCE.cooldownEff());
         closeGui(mc);
         if (!msg.equals(lastNotified)) { // don't repeat the same chat message every cycle
             lastNotified = msg;

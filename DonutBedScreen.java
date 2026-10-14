@@ -4,8 +4,8 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.client.sound.PositionedSoundInstance;
-import net.minecraft.item.BedItem;
 import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
 import net.minecraft.registry.Registries;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
@@ -17,97 +17,122 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 public class DonutBedScreen extends Screen {
-    private static final int W = 360;
-    private static final int H = 252;
-    private static final int SIDE = 80;
-    private static final int ROWS = 12;
+    private static final int W = 420;
+    private static final int H = 256;
+    private static final int HEAD = 34;
+    private static final int SIDE = 88;
 
-    // tabs: 0 dashboard, 1 pricing, 2 scan, 3 items, 4 prices, 5 deals, 6 alerts, 7 profit, 8 history
-    private static final String[] TABS = { "Dashboard", "Pricing", "Scan", "Items", "Prices", "Deals", "Alerts", "Profit", "History" };
-    private static final String[] RANGES = { "1H", "1D", "7D", "All" };
+    // palette (dark purple + neon)
+    private static final int ROW = 0xFF1E1236, ROW_H = 0xFF2A1A4C, BORDER = 0xFF3B2562, BOX = 0xFF120A24;
+    private static final int TXT = 0xFFF2E9FF, MUTED = 0xFF9C8DBD, DIM = 0xFF6B5C8C;
+    private static final int GREEN = 0xFF3DDC84, RED = 0xFFFF4D6D, GOLD = 0xFFFFC845, CYAN = 0xFF4DD8FF, PINK = 0xFFFF6EB4;
+
+    private static final int[] THEME = { 0xFFA855F7, 0xFF4C8DFF, 0xFF35D07F, 0xFFFF9F43, 0xFFFF6EB4, 0xFFFF5D62, 0xFF2FD6D6 };
+    private static final String[] THEME_NAMES = { "Donut", "Ocean", "Mint", "Sunset", "Bubblegum", "Ruby", "Aqua" };
+
+    // tabs: 0 dashboard, 1 settings, 2 items, 3 prices, 4 deals, 5 alerts, 6 profit, 7 history
+    private static final String[] TABS = { "Dashboard", "Settings", "Items", "Prices", "Deals", "Alerts", "Profit", "History" };
+    private static final String[] RANGES = { "1H", "1D", "7D", "ALL" };
     private static final long[] RANGE_MS = { 3_600_000L, 86_400_000L, 7L * 86_400_000L, 0L };
-
-    private static final int[] THEME = { 0xFF4C8DFF, 0xFFA066FF, 0xFF35D07F, 0xFFFF9F43, 0xFFFF6EB4, 0xFFFF5D62, 0xFF2FD6D6 };
-    private static final String[] THEME_NAMES = { "Ocean", "Violet", "Mint", "Sunset", "Bubblegum", "Ruby", "Aqua" };
+    private static final String[] PERIODS = { "Today", "7 Days", "All Time" };
+    private static final int[] PER_PAGE = { 5, 8, 10 };
+    private static final String[] SPEEDS = { "Normal", "Fast", "Turbo" };
 
     private static final String[][] ICONS = {
-            { "###.###.", "###.###.", "###.###.", "........", "###.###.", "###.###.", "###.###.", "........" },   // dashboard
-            { "..#.....", "########", "..#.....", "......#.", "########", "......#.", "...#....", "########" },   // pricing
-            { "..####..", ".#....#.", ".#....#.", ".#....#.", "..####..", ".....##.", "......##", ".......#" },   // scan
-            { "..####..", ".#.##.#.", "#..##..#", "########", "#......#", "#......#", "#......#", "########" },   // items
-            { "#.......", "#.....#.", "#..#.#.#", "#.#.#..#", "##.#....", "#.......", "#.......", "########" },   // prices
-            { "....##..", "...##...", "..##....", ".######.", "...##...", "..##....", ".##.....", ".#......" },   // deals
-            { "...##...", "..####..", "..####..", ".######.", ".######.", "########", "........", "...##..." },   // alerts
-            { "........", "......#.", "..#...#.", "..#.#.#.", "..#.#.#.", "#.#.#.#.", "#.#.#.#.", "########" },   // profit
-            { "..####..", ".#.##.#.", "#..##..#", "#..###.#", "#......#", ".#....#.", "..####..", "........" }    // history
+            { "###.###.", "###.###.", "###.###.", "........", "###.###.", "###.###.", "###.###.", "........" },
+            { "..#.....", "########", "..#.....", "......#.", "########", "......#.", "...#....", "########" },
+            { "..####..", ".#.##.#.", "#..##..#", "########", "#......#", "#......#", "#......#", "########" },
+            { "#.......", "#.....#.", "#..#.#.#", "#.#.#..#", "##.#....", "#.......", "#.......", "########" },
+            { "....##..", "...##...", "..##....", ".######.", "...##...", "..##....", ".##.....", ".#......" },
+            { "...##...", "..####..", "..####..", ".######.", ".######.", "########", "........", "...##..." },
+            { "........", "......#.", "..#...#.", "..#.#.#.", "..#.#.#.", "#.#.#.#.", "#.#.#.#.", "########" },
+            { "..####..", ".#.##.#.", "#..##..#", "#..###.#", "#......#", ".#....#.", "..####..", "........" }
     };
-
     private static final String[] DONUT = {
             "...####...", "..######..", ".###..###.", "###....###", "##......##",
             "##......##", "###....###", ".###..###.", "..######..", "...####..." };
+    private static final String[] I_CAL = { "########", "#######.", "#......#", "#.#.#..#", "#......#", "#.#.#..#", "#......#", "########" };
+    private static final String[] I_TROPHY = { "########", ".######.", ".######.", "..####..", "...##...", "...##...", "..####..", ".######." };
+    private static final String[] I_TAG = { "..####..", ".######.", "########", "########", "########", ".######.", "..####..", "...##..." };
+    private static final String[] I_KEY = { "..###...", ".#...#..", ".#...#..", "..###...", "...#....", "...##...", "...#....", "...##..." };
+    private static final String[] I_DOWN = { "...##...", "...##...", "...##...", "...##...", "#######.", ".#####..", "..###...", "...#...." };
+    private static final String[] I_COPY = { "..#####.", "..#...#.", "#####.#.", "#...#.#.", "#...###.", "#...#...", "#...#...", "#####..." };
+    private static final String[] I_SEARCH = { "..####..", ".#....#.", ".#....#.", ".#....#.", "..####..", ".....##.", "......##", ".......#" };
+    private static final String[] I_LINK = { "..###...", ".#...#..", ".#......", "..####..", "....#...", "...#..#.", "....###." , "........" };
 
     private static final Map<String, String> TIPS = new HashMap<>();
     static {
         TIPS.put("Auto Sell", "Off = watch prices only, never list anything.");
+        TIPS.put("Auto-pick item from inventory", "Moves the item from your inventory into your hand.");
         TIPS.put("Auto-pick", "Moves the item from your inventory into your hand.");
-        TIPS.put("Percent undercut", "Undercut by a % of the price instead of a flat $.");
+        TIPS.put("Outlier Guard", "Ignores lowball listings far under the rest.");
+        TIPS.put("Selling speed", "Turbo lists fastest but can trip server anti-spam.");
+        TIPS.put("Price cache (s)", "Fast/Turbo: reuse the last scanned price this long.");
+        TIPS.put("Default undercut ($)", "How many $ below the cheapest price you list at.");
+        TIPS.put("Percent undercut", "Undercut by a % of the price instead of flat $.");
+        TIPS.put("Percent undercut (%)", "Used when Percent undercut is on.");
+        TIPS.put("Default minimum price ($)", "Never list below this price.");
+        TIPS.put("Min profit per item ($)", "Never list below your cost + this.");
         TIPS.put("Outlier protection", "Ignore lowball listings far under the rest.");
-        TIPS.put("Flat undercut ($)", "How many $ below the cheapest price you list at.");
-        TIPS.put("Percent undercut (%)", "Used when Percent undercut is ON. Example: 1.5");
-        TIPS.put("Minimum price ($)", "Never list below this price.");
-        TIPS.put("Min profit per item ($)", "Never list below your cost + this amount.");
         TIPS.put("Lowball threshold (%)", "A listing this % under the next one is ignored.");
         TIPS.put("Auto sort (lowest first)", "Clicks the sort button until prices run lowest-first.");
         TIPS.put("Per-item pricing (stacks)", "Stack price divided by stack size.");
-        TIPS.put("Debug messages in chat", "Shows exactly what price it read, every round.");
         TIPS.put("Max pages to read", "Pages to read when it can't sort.");
         TIPS.put("Scan delay (ms)", "Wait after the GUI opens before reading it.");
-        TIPS.put("Auction timeout (s)", "Give up waiting for the auction GUI after this.");
-        TIPS.put("Cooldown (s)", "Minimum pause between auction commands.");
-        TIPS.put("Enabled (rotates in)", "Include this item in the selling rotation.");
-        TIPS.put("Search term (/ah ...)", "The word sent to /ah to find this item.");
-        TIPS.put("Cost per item ($)", "What you paid. Used to work out profit.");
+        TIPS.put("Auction timeout (s)", "Give up waiting for the GUI after this.");
+        TIPS.put("Cooldown (s)", "Minimum pause between auction cycles.");
+        TIPS.put("Debug messages in chat", "Shows exactly what price it read, every round.");
         TIPS.put("Deal finder", "Alerts you to listings far below market.");
         TIPS.put("Min discount (%)", "How far under market counts as a deal.");
+        TIPS.put("Enabled (rotates in)", "Include this item in the selling rotation.");
+        TIPS.put("Cost per item ($)", "What you paid. Used to work out profit.");
+        TIPS.put("Minimum price ($)", "Never list this item below this price.");
+        TIPS.put("Undercut ($)", "Overrides the default undercut for this item.");
         TIPS.put("Chat notifications", "Messages in chat when something happens.");
         TIPS.put("Sound alert", "Plays a sound when you list or find a deal.");
         TIPS.put("Popup toast", "Shows a popup in the corner.");
     }
 
     private static int tab = 0;
-    private static int page = 0;
+    private static int histPage = 0;
+    private static int perPageSel = 2;
+    private static String histSearch = "";
     private static int itemSel = 0;
     private static int priceSel = 0;
     private static int priceRange = 1;
-    private static String note = "";
-    private static long noteUntil = 0;
+    private static int profitPeriod = 0;
+    private static boolean collapsed = false;
+    private static float scrollTarget = 0f, scrollCur = 0f, maxScroll = 0f;
     private static float tabHiY = -1f;
     private static long tabSwitchAt = 0;
-    private static boolean skipAnim = false;
+    private static String note = "";
+    private static long noteUntil = 0;
     private static final Map<String, Float> ANIM = new HashMap<>();
     private static final Map<String, Double> NUMS = new HashMap<>();
 
     private record Hit(int x, int y, int w, int h, Runnable action) {}
 
     private final List<Hit> hits = new ArrayList<>();
-    private final List<TextFieldWidget> fields = new ArrayList<>();
     private final long openAt;
+    private TextFieldWidget editField;
+    private String editKey = null;
+    private boolean editFound = false;
+    private int clipTop = Integer.MIN_VALUE, clipBot = Integer.MAX_VALUE;
     private boolean resetArmed = false;
     private String tip = null;
-    private int left, top, cx, cw;
+    private int left, top, cx, cw, y0;
 
     public DonutBedScreen() {
         super(Text.literal("Donut Bed Client"));
-        openAt = skipAnim ? 0 : System.currentTimeMillis();
-        skipAnim = false;
+        openAt = System.currentTimeMillis();
     }
 
-    private void reopen() {
-        skipAnim = true;
-        tabSwitchAt = System.currentTimeMillis();
-        if (client != null) client.setScreen(new DonutBedScreen());
+    private static void say(String s) {
+        note = s;
+        noteUntil = System.currentTimeMillis() + 3500;
     }
 
     private static Config.ItemCfg selItem() {
@@ -116,84 +141,69 @@ public class DonutBedScreen extends Screen {
         return items.get(itemSel);
     }
 
+    private static Config.ItemCfg cfgByName(String name) {
+        for (Config.ItemCfg it : Config.INSTANCE.items) if (it.name.equals(name)) return it;
+        return null;
+    }
+
+    private static ItemStack iconStack(Config.ItemCfg it, String fallbackName) {
+        if (it == null) {
+            return new ItemStack(fallbackName != null && fallbackName.toLowerCase().contains("bed") ? Items.RED_BED : Items.PAPER);
+        }
+        if ("@bed".equals(it.match)) {
+            if (it.colorMask != 0) {
+                for (int i = 0; i < 16; i++) {
+                    if (((it.colorMask >> i) & 1) != 0) {
+                        return new ItemStack(Registries.ITEM.get(Identifier.of("minecraft", Config.BED_COLORS[i] + "_bed")));
+                    }
+                }
+            }
+            return new ItemStack(Items.RED_BED);
+        }
+        Identifier id = Identifier.tryParse(it.match);
+        if (id == null) return new ItemStack(Items.PAPER);
+        return new ItemStack(Registries.ITEM.get(id));
+    }
+
     private static int acc() {
         return THEME[Math.max(0, Math.min(THEME.length - 1, Config.INSTANCE.theme))];
     }
 
-    // ------------------------------------------------------------ setup
+    // ------------------------------------------------------------ setup / editing
 
     @Override
     protected void init() {
-        Config c = Config.INSTANCE;
-        fields.clear();
         left = (width - W) / 2;
-        top = Math.max(8, (height - H) / 2);
-        cx = left + SIDE + 12;
-        cw = W - SIDE - 22;
-        int fx = cx + cw - 86;
-        int y0 = top + 36;
-
-        if (tab == 1) {
-            int base = y0 + 16 + 2 * 22 + 4;
-            numField(fx, base + 1, 80, String.valueOf(c.undercut), s -> c.undercut = num(s, c.undercut));
-            decField(fx, base + 22, 80, String.valueOf(c.undercutPercent), s -> {
-                try { c.undercutPercent = Math.min(50.0, Double.parseDouble(s)); } catch (Exception ignored) {}
-            });
-            numField(fx, base + 43, 80, String.valueOf(c.minPrice), s -> c.minPrice = num(s, c.minPrice));
-            numField(fx, base + 64, 80, String.valueOf(c.minProfit), s -> c.minProfit = num(s, c.minProfit));
-            numField(fx, base + 85, 80, String.valueOf(c.outlierPercent), s -> c.outlierPercent = (int) Math.min(num(s, c.outlierPercent), 1000));
-        } else if (tab == 2) {
-            int base = y0 + 16 + 3 * 22 + 4;
-            numField(fx, base + 1, 80, String.valueOf(c.scanPages), s -> c.scanPages = (int) Math.min(num(s, c.scanPages), 100));
-            numField(fx, base + 22, 80, String.valueOf(c.scanDelayMs), s -> c.scanDelayMs = (int) Math.min(num(s, c.scanDelayMs), 1_000_000));
-            numField(fx, base + 43, 80, String.valueOf(c.timeoutMs / 1000), s -> c.timeoutMs = (int) Math.min(num(s, c.timeoutMs / 1000) * 1000, 1_000_000));
-            numField(fx, base + 64, 80, String.valueOf(c.cooldownMs / 1000), s -> c.cooldownMs = (int) Math.min(num(s, c.cooldownMs / 1000) * 1000, 1_000_000));
-        } else if (tab == 3) {
-            Config.ItemCfg it = selItem();
-            int base = y0 + 84;
-            textField(cx + cw - 126, base + 1, 120, 40, it.search, s -> it.search = s);
-            numField(fx, base + 22, 80, String.valueOf(it.cost), s -> it.cost = s.isEmpty() ? 0 : num(s, it.cost));
-            numField(fx, base + 43, 80, it.minPrice < 0 ? "" : String.valueOf(it.minPrice), s -> it.minPrice = s.isEmpty() ? -1 : num(s, it.minPrice));
-            numField(fx, base + 64, 80, it.undercut < 0 ? "" : String.valueOf(it.undercut), s -> it.undercut = s.isEmpty() ? -1 : num(s, it.undercut));
-        } else if (tab == 5) {
-            numField(fx, y0 + 39, 80, String.valueOf(c.dealPercent), s -> c.dealPercent = (int) Math.min(num(s, c.dealPercent), 99));
-        } else if (tab == 6) {
-            textField(cx, y0 + 100, cw, 200, c.discordWebhook, s -> c.discordWebhook = s.trim());
-        }
+        top = Math.max(6, (height - H) / 2);
+        cx = left + SIDE + 10;
+        cw = W - SIDE - 20;
+        y0 = top + HEAD + 6;
+        editField = new TextFieldWidget(textRenderer, 0, 0, 60, 10, Text.empty());
+        editField.setDrawsBackground(false);
+        editField.visible = false;
+        addDrawableChild(editField);
+        editKey = null;
     }
 
-    private static long num(String s, long old) {
-        if (s == null || s.isEmpty()) return old;
-        try { return Long.parseLong(s); } catch (Exception e) { return old; }
+    private void startEdit(String key, int kind, int max, String initial, Consumer<String> onChange) {
+        Predicate<String> pred = kind == 0 ? (s -> s.matches("\\d*"))
+                : kind == 1 ? (s -> s.matches("\\d{0,2}(\\.\\d{0,2})?")) : (s -> true);
+        editField.setChangedListener(s -> {});
+        editField.setMaxLength(max);
+        editField.setTextPredicate(pred);
+        editField.setText(initial);
+        editField.setChangedListener(onChange);
+        editField.visible = true;
+        editKey = key;
+        setFocused(editField);
     }
 
-    private void numField(int x, int y, int w, String value, Consumer<String> onChange) {
-        TextFieldWidget f = new TextFieldWidget(textRenderer, x, y, w, 18, Text.empty());
-        f.setMaxLength(15);
-        f.setTextPredicate(s -> s.matches("\\d*"));
-        f.setText(value);
-        f.setChangedListener(onChange);
-        addDrawableChild(f);
-        fields.add(f);
-    }
-
-    private void decField(int x, int y, int w, String value, Consumer<String> onChange) {
-        TextFieldWidget f = new TextFieldWidget(textRenderer, x, y, w, 18, Text.empty());
-        f.setMaxLength(6);
-        f.setTextPredicate(s -> s.matches("\\d{0,2}(\\.\\d{0,2})?"));
-        f.setText(value);
-        f.setChangedListener(onChange);
-        addDrawableChild(f);
-        fields.add(f);
-    }
-
-    private void textField(int x, int y, int w, int max, String value, Consumer<String> onChange) {
-        TextFieldWidget f = new TextFieldWidget(textRenderer, x, y, w, 18, Text.empty());
-        f.setMaxLength(max);
-        f.setText(value == null ? "" : value);
-        f.setChangedListener(onChange);
-        addDrawableChild(f);
-        fields.add(f);
+    private void stopEdit() {
+        editKey = null;
+        if (editField != null) editField.visible = false;
+        setFocused(null);
+        Config.INSTANCE.sanitize();
+        Config.INSTANCE.save();
     }
 
     @Override
@@ -205,24 +215,56 @@ public class DonutBedScreen extends Screen {
     @Override
     public boolean shouldPause() { return false; }
 
+    private void goTab(int t) {
+        stopEdit();
+        tab = t;
+        histPage = 0;
+        scrollTarget = 0;
+        scrollCur = 0;
+        tabSwitchAt = System.currentTimeMillis();
+    }
+
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        boolean typing = fields.stream().anyMatch(TextFieldWidget::isFocused);
-        if (!typing && DonutBedClient.openKey.matchesKey(keyCode, scanCode)) {
+        if (editKey != null) {
+            if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER || keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                stopEdit();
+                return true;
+            }
+            return super.keyPressed(keyCode, scanCode, modifiers);
+        }
+        if (DonutBedClient.openKey.matchesKey(keyCode, scanCode)) {
             close();
             return true;
         }
-        if (!typing && keyCode >= GLFW.GLFW_KEY_1 && keyCode < GLFW.GLFW_KEY_1 + TABS.length) {
-            tab = keyCode - GLFW.GLFW_KEY_1;
-            page = 0;
-            reopen();
+        if (keyCode >= GLFW.GLFW_KEY_1 && keyCode < GLFW.GLFW_KEY_1 + TABS.length) {
+            goTab(keyCode - GLFW.GLFW_KEY_1);
+            return true;
+        }
+        if (tab == 1 && (keyCode == GLFW.GLFW_KEY_UP || keyCode == GLFW.GLFW_KEY_DOWN)) {
+            scrollTarget = Math.max(0, Math.min(maxScroll, scrollTarget + (keyCode == GLFW.GLFW_KEY_DOWN ? 24 : -24)));
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
+    public boolean mouseScrolled(double mx, double my, double ha, double va) {
+        if (!collapsed && tab == 1) {
+            scrollTarget = Math.max(0, Math.min(maxScroll, scrollTarget - (float) va * 20f));
+            return true;
+        }
+        return super.mouseScrolled(mx, my, ha, va);
+    }
+
+    @Override
     public boolean mouseClicked(double mx, double my, int button) {
+        int imx = (int) mx, imy = (int) my;
+        if (editKey != null && editField.visible) {
+            boolean inside = imx >= editField.getX() - 5 && imx < editField.getX() + editField.getWidth() + 5
+                    && imy >= editField.getY() - 4 && imy < editField.getY() + 13;
+            if (!inside) stopEdit();
+        }
         if (button == 0) {
             for (Hit h : new ArrayList<>(hits)) {
                 if (mx >= h.x() && mx < h.x() + h.w() && my >= h.y() && my < h.y() + h.h()) {
@@ -237,10 +279,16 @@ public class DonutBedScreen extends Screen {
         return super.mouseClicked(mx, my, button);
     }
 
-    // ------------------------------------------------------------ helpers
+    // ------------------------------------------------------------ small helpers
 
-    private static boolean in(int mx, int my, int x, int y, int w, int h) {
-        return mx >= x && mx < x + w && my >= y && my < y + h;
+    private boolean hover(int mx, int my, int x, int y, int w, int h) {
+        return mx >= x && mx < x + w && my >= y && my < y + h && my >= clipTop && my < clipBot;
+    }
+
+    private void addHit(int x, int y, int w, int h, Runnable r) {
+        int a = Math.max(y, clipTop), b = Math.min(y + h, clipBot);
+        if (b <= a) return;
+        hits.add(new Hit(x, a, w, b - a, r));
     }
 
     private static int lerp(int a, int b, float t) {
@@ -285,7 +333,6 @@ public class DonutBedScreen extends Screen {
         return Math.round(cur);
     }
 
-    /** Rectangle with softly cut corners. Opaque colors only. */
     private static void rrect(DrawContext g, int x, int y, int w, int h, int color) {
         g.fill(x + 2, y, x + w - 2, y + 1, color);
         g.fill(x + 1, y + 1, x + w - 1, y + 2, color);
@@ -294,24 +341,18 @@ public class DonutBedScreen extends Screen {
         g.fill(x + 2, y + h - 1, x + w - 2, y + h, color);
     }
 
-    private void bitmap(DrawContext g, String[] rows, int x, int y, int color) {
-        for (int r = 0; r < rows.length; r++) {
-            String row = rows[r];
-            for (int cc = 0; cc < row.length(); cc++) {
-                if (row.charAt(cc) == '#') g.fill(x + cc, y + r, x + cc + 1, y + r + 1, color);
-            }
-        }
+    private static void panel(DrawContext g, int x, int y, int w, int h, int fill, int border) {
+        rrect(g, x, y, w, h, border);
+        rrect(g, x + 1, y + 1, w - 2, h - 2, fill);
     }
 
-    private void drawDonut(DrawContext g, int x, int y) {
-        bitmap(g, DONUT, x, y, 0xFFFF8CC6);
-        // sprinkles
-        g.fill(x + 3, y + 1, x + 4, y + 2, 0xFFFFFFFF);
-        g.fill(x + 7, y + 2, x + 8, y + 3, 0xFFFFE066);
-        g.fill(x + 1, y + 4, x + 2, y + 5, 0xFF66E0FF);
-        g.fill(x + 8, y + 5, x + 9, y + 6, 0xFFFFFFFF);
-        g.fill(x + 2, y + 7, x + 3, y + 8, 0xFFFFE066);
-        g.fill(x + 6, y + 8, x + 7, y + 9, 0xFF66E0FF);
+    private void bitmap(DrawContext g, String[] rows, int x, int y, int color, int scale) {
+        for (int r = 0; r < rows.length; r++) {
+            String row = rows[r];
+            for (int k = 0; k < row.length(); k++) {
+                if (row.charAt(k) == '#') g.fill(x + k * scale, y + r * scale, x + (k + 1) * scale, y + (r + 1) * scale, color);
+            }
+        }
     }
 
     private void txt(DrawContext g, String s, int x, int y, int color) {
@@ -320,6 +361,10 @@ public class DonutBedScreen extends Screen {
 
     private void txtRight(DrawContext g, String s, int rightX, int y, int color) {
         txt(g, s, rightX - textRenderer.getWidth(s), y, color);
+    }
+
+    private void txtCenter(DrawContext g, String s, int centerX, int y, int color) {
+        txt(g, s, centerX - textRenderer.getWidth(s) / 2, y, color);
     }
 
     private void big(DrawContext g, String s, int x, int y, float sc, int color) {
@@ -331,146 +376,232 @@ public class DonutBedScreen extends Screen {
         m.pop();
     }
 
-    private void button(DrawContext g, int mx, int my, int x, int y, int w, int h,
-                        String label, int top1, int bottom1, Runnable action) {
-        boolean hov = in(mx, my, x, y, w, h);
-        float hv = anim("btn" + x + "_" + y, hov ? 1f : 0f, 0.3f);
-        int d = Math.round(hv * 34);
-        rrect(g, x, y, w, h, shade(bottom1, -40 + d));
-        g.fillGradient(x + 1, y + 1, x + w - 1, y + h - 1, shade(top1, d), shade(bottom1, d));
-        g.fill(x + 2, y + 1, x + w - 2, y + 2, alpha(0xFFFFFF, 30 + Math.round(hv * 40)));
-        g.drawCenteredTextWithShadow(textRenderer, Text.literal(label), x + w / 2, y + (h - 8) / 2, 0xFFFFFFFF);
-        hits.add(new Hit(x, y, w, h, action));
+    private void icon(DrawContext g, ItemStack st, int x, int y, float scale) {
+        var m = g.getMatrices();
+        m.push();
+        m.translate(x, y, 0);
+        m.scale(scale, scale, 1f);
+        g.drawItem(st, 0, 0);
+        m.pop();
     }
 
-    private void smallButton(DrawContext g, int mx, int my, int x, int y, int w, int h, String label, boolean active, Runnable action) {
-        button(g, mx, my, x, y, w, h, label, active ? acc() : 0xFF3A3F5C, active ? shade(acc(), -75) : 0xFF262A44, action);
+    private void gradButton(DrawContext g, int mx, int my, int x, int y, int w, int h, String label,
+                            int c1, int c2, Runnable action) {
+        boolean hov = hover(mx, my, x, y, w, h);
+        float hv = anim("gb" + x + "_" + y, hov ? 1f : 0f, 0.3f);
+        int d = Math.round(hv * 30);
+        rrect(g, x, y, w, h, shade(c2, -50 + d));
+        g.fillGradient(x + 1, y + 1, x + w - 1, y + h - 1, shade(c1, d), shade(c2, d));
+        g.fill(x + 2, y + 1, x + w - 2, y + 2, alpha(0xFFFFFF, 40 + Math.round(hv * 50)));
+        g.drawCenteredTextWithShadow(textRenderer, Text.literal(label), x + w / 2, y + (h - 8) / 2 + 1, 0xFFFFFFFF);
+        addHit(x, y, w, h, action);
     }
 
-    private void fieldRow(DrawContext g, int mx, int my, int x, int y, int w, int h, String label) {
-        boolean hov = in(mx, my, x, y, w, h);
-        rrect(g, x, y, w, h, hov ? 0xFF202448 : 0xFF1A1D33);
-        if (hov) g.fill(x + 1, y + 3, x + 3, y + h - 3, acc());
-        txt(g, label, x + 8, y + (h - 8) / 2 + 1, 0xFFE6E8FF);
-        if (hov && TIPS.containsKey(label)) tip = TIPS.get(label);
+    private void primary(DrawContext g, int mx, int my, int x, int y, int w, int h, String label, Runnable a) {
+        gradButton(g, mx, my, x, y, w, h, label, shade(acc(), 30), shade(acc(), -50), a);
     }
 
-    private void toggleRow(DrawContext g, int mx, int my, int x, int y, int w,
-                           String label, boolean val, Runnable click) {
-        boolean hov = in(mx, my, x, y, w, 20);
-        rrect(g, x, y, w, 20, hov ? 0xFF22264A : 0xFF1A1D33);
-        if (hov) g.fill(x + 1, y + 3, x + 3, y + 17, acc());
-        txt(g, label, x + 8, y + 6, 0xFFE6E8FF);
-        float cur = anim("tg" + label, val ? 1f : 0f, 0.25f);
-        int tx = x + w - 36, ty = y + 4;
-        if (cur > 0.05f) rrect(g, tx - 1, ty - 1, 30, 14, lerp(0xFF1A1D33, 0xFF1E5A3E, cur));
-        rrect(g, tx, ty, 28, 12, lerp(0xFF3A3F5C, 0xFF2FBF71, cur));
-        rrect(g, tx + 2 + Math.round(cur * 16), ty + 2, 8, 8, 0xFFFFFFFF);
-        if (hov && TIPS.containsKey(label)) tip = TIPS.get(label);
-        hits.add(new Hit(x, y, w, 20, click));
+    private void outline(DrawContext g, int mx, int my, int x, int y, int w, int h, String label, boolean active, Runnable a) {
+        boolean hov = hover(mx, my, x, y, w, h);
+        float hv = anim("ob" + x + "_" + y, hov ? 1f : 0f, 0.3f);
+        panel(g, x, y, w, h, active ? alpha(acc(), 255) & 0xFF000000 | (shade(acc(), -85) & 0xFFFFFF) : lerp(ROW, ROW_H, hv),
+                active ? acc() : lerp(BORDER, acc(), hv * 0.7f));
+        g.drawCenteredTextWithShadow(textRenderer, Text.literal(label), x + w / 2, y + (h - 8) / 2 + 1, active ? 0xFFFFFFFF : TXT);
+        addHit(x, y, w, h, a);
+    }
+
+    private boolean rowBg(DrawContext g, int mx, int my, int x, int y, int w, int h, String label) {
+        boolean hov = hover(mx, my, x, y, w, h);
+        panel(g, x, y, w, h, hov ? ROW_H : ROW, hov ? lerp(BORDER, acc(), 0.5f) : BORDER);
+        if (label != null) txt(g, label, x + 8, y + (h - 8) / 2 + 1, TXT);
+        if (hov && label != null && TIPS.containsKey(label)) tip = TIPS.get(label);
+        return hov;
+    }
+
+    private void drawSwitch(DrawContext g, int x, int y, String key, boolean val) {
+        float cur = anim("sw" + key, val ? 1f : 0f, 0.25f);
+        rrect(g, x, y, 24, 11, lerp(0xFF3A2D57, GREEN, cur));
+        rrect(g, x + 2 + Math.round(cur * 13), y + 2, 7, 7, 0xFFFFFFFF);
+    }
+
+    /** A full-width (or custom width) toggle row. Returns nothing; use toggleList for list layout. */
+    private void toggleAt(DrawContext g, int mx, int my, int x, int y, int w, int h, String label, boolean val, Runnable click) {
+        rowBg(g, mx, my, x, y, w, h, label);
+        drawSwitch(g, x + w - 31, y + (h - 11) / 2, label, val);
+        addHit(x, y, w, h, click);
+    }
+
+    private int toggleRow(DrawContext g, int mx, int my, int y, String label, boolean val, Runnable click) {
+        toggleAt(g, mx, my, cx, y, cw, 18, label, val, click);
+        return y + 20;
+    }
+
+    private void stepBtn(DrawContext g, int mx, int my, int x, int y, String label, Runnable a) {
+        boolean hov = hover(mx, my, x, y, 14, 14);
+        panel(g, x, y, 14, 14, hov ? shade(acc(), -60) : BOX, hov ? acc() : BORDER);
+        g.drawCenteredTextWithShadow(textRenderer, Text.literal(label), x + 7, y + 3, TXT);
+        addHit(x, y, 14, 14, a);
+    }
+
+    private void valueBox(DrawContext g, int mx, int my, String key, int x, int y, int w, int h, String shown,
+                          String placeholder, int kind, int max, String raw, Consumer<String> onChange, boolean right) {
+        boolean editing = key.equals(editKey);
+        boolean hov = hover(mx, my, x, y, w, h);
+        panel(g, x, y, w, h, BOX, editing ? acc() : (hov ? lerp(BORDER, acc(), 0.5f) : BORDER));
+        if (editing) {
+            editField.setX(x + 5);
+            editField.setY(y + (h - 8) / 2);
+            editField.setWidth(w - 10);
+            editFound = true;
+        } else {
+            String s = shown;
+            int col = TXT;
+            if (s == null || s.isEmpty()) { s = placeholder; col = DIM; }
+            s = textRenderer.trimToWidth(s, w - 10);
+            if (right) txtRight(g, s, x + w - 5, y + (h - 8) / 2 + 1, col);
+            else txt(g, s, x + 5, y + (h - 8) / 2 + 1, col);
+            addHit(x, y, w, h, () -> startEdit(key, kind, max, raw, onChange));
+        }
+    }
+
+    private int numRowX(DrawContext g, int mx, int my, int y, String label, String key, String shown, String raw,
+                        Runnable inc, Runnable dec, Consumer<String> onType, int h) {
+        rowBg(g, mx, my, cx, y, cw, h, label);
+        int bw = 70;
+        int plusX = cx + cw - 20;
+        int minusX = plusX - 16;
+        int boxX = minusX - 4 - bw;
+        valueBox(g, mx, my, key, boxX, y + (h - 14) / 2, bw, 14, shown, "", 0, 15, raw, onType, true);
+        stepBtn(g, mx, my, minusX, y + (h - 14) / 2, "-", dec);
+        stepBtn(g, mx, my, plusX, y + (h - 14) / 2, "+", inc);
+        return y + h + 2;
+    }
+
+    private int numRow(DrawContext g, int mx, int my, int y, String label, String key, long val, long step,
+                       long min, long max, Consumer<Long> set) {
+        final long mult = hasShiftDown() ? 10 : 1;
+        return numRowX(g, mx, my, y, label, key, String.format("%,d", val), String.valueOf(val),
+                () -> set.accept(Math.min(max, val + step * mult)),
+                () -> set.accept(Math.max(min, val - step * mult)),
+                s -> { try { set.accept(Math.max(min, Math.min(max, Long.parseLong(s)))); } catch (Exception ignored) {} }, 18);
+    }
+
+    private int decRow(DrawContext g, int mx, int my, int y, String label, String key, double val, double step,
+                       double min, double max, Consumer<Double> set) {
+        rowBg(g, mx, my, cx, y, cw, 18, label);
+        int bw = 70;
+        int plusX = cx + cw - 20;
+        int minusX = plusX - 16;
+        int boxX = minusX - 4 - bw;
+        valueBox(g, mx, my, key, boxX, y + 2, bw, 14, String.valueOf(val), "", 1, 6, String.valueOf(val),
+                s -> { try { set.accept(Math.max(min, Math.min(max, Double.parseDouble(s)))); } catch (Exception ignored) {} }, true);
+        stepBtn(g, mx, my, minusX, y + 2, "-", () -> set.accept(Math.max(min, Math.round((val - step) * 100.0) / 100.0)));
+        stepBtn(g, mx, my, plusX, y + 2, "+", () -> set.accept(Math.min(max, Math.round((val + step) * 100.0) / 100.0)));
+        return y + 20;
+    }
+
+    private int segRow(DrawContext g, int mx, int my, int y, String label, String[] opts, int sel, Consumer<Integer> set) {
+        rowBg(g, mx, my, cx, y, cw, 18, label);
+        int sw = 46;
+        int sx = cx + cw - 6 - opts.length * (sw + 2) + 2;
+        for (int i = 0; i < opts.length; i++) {
+            final int idx = i;
+            int x = sx + i * (sw + 2);
+            boolean on = sel == i;
+            boolean hov = hover(mx, my, x, y + 2, sw, 14);
+            if (on) {
+                rrect(g, x, y + 2, sw, 14, shade(acc(), -50));
+                g.fillGradient(x + 1, y + 3, x + sw - 1, y + 15, shade(acc(), 30), shade(acc(), -50));
+            } else {
+                panel(g, x, y + 2, sw, 14, hov ? ROW_H : BOX, BORDER);
+            }
+            g.drawCenteredTextWithShadow(textRenderer, Text.literal(opts[i]), x + sw / 2, y + 5, on ? 0xFFFFFFFF : MUTED);
+            addHit(x, y + 2, sw, 14, () -> set.accept(idx));
+        }
+        return y + 20;
+    }
+
+    private int section(DrawContext g, int y, String label) {
+        txt(g, label, cx + 2, y + 3, acc());
+        g.fill(cx + textRenderer.getWidth(label) + 8, y + 7, cx + cw - 2, y + 8, BORDER);
+        return y + 14;
     }
 
     private void card(DrawContext g, int x, int y, int w, int h, String label, String value, int vcolor) {
-        rrect(g, x, y, w, h, 0xFF1A1D33);
-        g.fillGradient(x + 1, y + 2, x + w - 1, y + 10, alpha(vcolor, 28), alpha(vcolor, 0));
-        g.fill(x + 1, y + 3, x + 3, y + h - 3, vcolor);
-        txt(g, label, x + 8, y + 6, 0xFF8A90B8);
-        txt(g, textRenderer.trimToWidth(value, w - 12), x + 8, y + h - 14, vcolor);
+        panel(g, x, y, w, h, ROW, BORDER);
+        g.fillGradient(x + 1, y + 2, x + w - 1, y + 9, alpha(vcolor, 26), alpha(vcolor, 0));
+        txt(g, label, x + 7, y + 5, MUTED);
+        txt(g, textRenderer.trimToWidth(value, w - 12), x + 7, y + h - 13, vcolor);
     }
 
-    private static String money(long v) {
-        return v < 0 ? "-" : Profit.compact(v);
-    }
-
-    private static int profitColor(long v) {
-        return v >= 0 ? 0xFF4DE08A : 0xFFFF5D62;
-    }
+    private static String money(long v) { return v < 0 ? "-" : Profit.compact(v); }
+    private static int profitColor(long v) { return v >= 0 ? GREEN : RED; }
 
     private static int statusColor(AutoSeller.Status s) {
         return switch (s) {
             case IDLE -> 0xFF9AA0C0;
             case SCANNING -> 0xFFFFD84D;
-            case PRICE_FOUND -> 0xFF4DE08A;
-            case SELLING -> 0xFF4DD8FF;
-            case ERROR -> 0xFFFF5D62;
+            case PRICE_FOUND -> GREEN;
+            case SELLING -> CYAN;
+            case ERROR -> RED;
         };
     }
 
     private static int pulsing(AutoSeller.Status s) {
-        int base = statusColor(s);
-        if (s == AutoSeller.Status.SCANNING || s == AutoSeller.Status.SELLING) {
+        int base = s == AutoSeller.Status.IDLE ? GREEN : statusColor(s);
+        if (s != AutoSeller.Status.IDLE) {
             float p = 0.5f + 0.5f * (float) Math.sin(System.currentTimeMillis() / 220.0);
             return lerp(base, 0xFF202438, p * 0.7f);
         }
         return base;
     }
 
-    private void spinner(DrawContext g, int cxp, int cyp, int r, int color) {
-        int n = 10;
-        int head = (int) ((System.currentTimeMillis() / 90) % n);
-        for (int i = 0; i < n; i++) {
-            double ang = Math.PI * 2 * i / n;
-            int x = cxp + (int) Math.round(Math.cos(ang) * r);
-            int y = cyp + (int) Math.round(Math.sin(ang) * r);
-            int d = (head - i + n) % n;
-            float f = 1f - d / (float) n;
-            g.fill(x - 1, y - 1, x + 1, y + 1, alpha(color, 50 + Math.round(205 * f)));
-        }
+    private void title(DrawContext g, String t, String sub) {
+        big(g, t, cx, y0, 1.35f, 0xFFFFFFFF);
+        txt(g, sub, cx, y0 + 15, MUTED);
+        if (System.currentTimeMillis() < noteUntil) txtRight(g, note, cx + cw, y0 + 3, GOLD);
     }
 
-    private void sparkline(DrawContext g, int x, int y, int w, int h) {
-        List<Profit.Entry> list = Profit.entries();
-        int n = Math.min(24, list.size());
-        if (n < 2) {
-            g.fill(x, y + h / 2, x + w, y + h / 2 + 1, 0xFF2B2F52);
-            return;
-        }
-        long[] cum = new long[n];
-        long run = 0;
-        for (int i = 0; i < n; i++) {
-            run += list.get(list.size() - n + i).profit;
-            cum[i] = run;
-        }
-        long lo = Long.MAX_VALUE, hi = Long.MIN_VALUE;
-        for (long v : cum) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
-        if (hi == lo) { hi++; lo--; }
-        int color = profitColor(cum[n - 1] - cum[0]);
-        int prev = -1;
-        for (int col = 0; col < w; col++) {
-            double f = col * (n - 1) / (double) Math.max(1, w - 1);
-            int i = (int) f;
-            double frac = f - i;
-            double v = cum[i] + (cum[Math.min(i + 1, n - 1)] - cum[i]) * frac;
-            int py = y + h - 1 - (int) Math.round((v - lo) / (double) (hi - lo) * (h - 1));
-            g.fill(x + col, py, x + col + 1, y + h, alpha(color, 36));
-            int a = prev < 0 ? py : Math.min(py, prev);
-            int b = (prev < 0 ? py : Math.max(py, prev)) + 1;
-            g.fill(x + col, a, x + col + 1, b + 1, color);
-            prev = py;
-        }
-    }
-
-    // ------------------------------------------------------------ rendering
+    // ------------------------------------------------------------ frame
 
     @Override
     public void renderBackground(DrawContext g, int mx, int my, float delta) {
-        // (no vanilla blur: we draw our own backdrop in render())
-        long t = System.currentTimeMillis();
-        for (int i = 1; i <= 6; i++) {
-            g.fill(left - i, top - i, left + W + i, top + H + i, alpha(0x000000, 14));
+        // intentionally empty: render() draws our own backdrop and window
+    }
+
+    private int winH() { return collapsed ? HEAD : H; }
+
+    private void drawBackdrop(DrawContext g, long t) {
+        g.fillGradient(0, 0, width, height, 0xE4190A30, 0xF40A0414);
+        for (int i = 0; i < 50; i++) {
+            int sx = (int) ((i * 7919L) % Math.max(1, width));
+            int sy = (int) ((i * 104729L) % Math.max(1, height - 30));
+            float tw = 0.5f + 0.5f * (float) Math.sin(t / 600.0 + i);
+            g.fill(sx, sy, sx + 1, sy + 1, alpha(i % 4 == 0 ? PINK : 0xFFFFFF, 30 + Math.round(tw * 110)));
+        }
+        for (int bx = 0; bx < width; bx += 10) {
+            int hgt = 10 + (int) (Math.abs(((bx / 10) * 2654435761L) >> 5) % 34);
+            g.fill(bx, height - hgt, bx + 10, height, 0xFF0A0516);
+            if (hgt > 26) g.fill(bx + 2, height - hgt + 3, bx + 4, height - hgt + 5, alpha(PINK, 70));
+        }
+    }
+
+    private void drawWindow(DrawContext g, long t) {
+        int wh = winH();
+        for (int i = 1; i <= 7; i++) {
+            g.fill(left - i, top - i, left + W + i, top + wh + i, alpha(acc(), 9));
         }
         float glow = 0.5f + 0.5f * (float) Math.sin(t / 700.0);
-        rrect(g, left - 1, top - 1, W + 2, H + 2, lerp(shade(acc(), -90), shade(acc(), -25), glow));
-        g.fillGradient(left, top, left + W, top + H, 0xFA171A2E, 0xFA0A0B15);
-
-        // drifting particles
-        for (int i = 0; i < 30; i++) {
-            int px = left + SIDE + 4 + (int) ((i * 61L) % (W - SIDE - 8)) + (int) Math.round(Math.sin(t / 900.0 + i) * 6);
-            int span = H - 34;
-            int py = top + H - (int) (((t / (22 + (i % 7) * 9)) + i * 53L) % span);
-            int size = (i % 3 == 0) ? 2 : 1;
-            if (px < left + SIDE + 2 || px > left + W - 4) continue;
-            g.fill(px, py, px + size, py + size, alpha(i % 2 == 0 ? acc() : 0xFFFFFF, i % 2 == 0 ? 70 : 36));
+        rrect(g, left - 1, top - 1, W + 2, wh + 2, lerp(shade(acc(), -70), shade(acc(), 10), glow));
+        g.fillGradient(left, top, left + W, top + wh, 0xFF1B1033, 0xFF0E0820);
+        if (!collapsed) {
+            for (int i = 0; i < 26; i++) {
+                int px = left + SIDE + 6 + (int) ((i * 61L) % (W - SIDE - 12)) + (int) Math.round(Math.sin(t / 900.0 + i) * 5);
+                int span = H - HEAD - 10;
+                int py = top + H - (int) (((t / (24 + (i % 7) * 9)) + i * 53L) % span);
+                int[] cols = { PINK, 0xFFFFE066, CYAN, 0xFFFFFFFF };
+                g.fill(px, py, px + 2, py + 1, alpha(cols[i % 4], 55));
+            }
         }
     }
 
@@ -478,15 +609,12 @@ public class DonutBedScreen extends Screen {
     public void render(DrawContext g, int mx, int my, float delta) {
         hits.clear();
         tip = null;
+        editFound = false;
         long now = System.currentTimeMillis();
+        drawBackdrop(g, now);
 
-        // backdrop (vignette)
-        g.fillGradient(0, 0, width, height, 0xB4090A14, 0xD2030308);
-
-        float p = openAt == 0 ? 1f : Math.min(1f, (now - openAt) / 240f);
+        float p = Math.min(1f, (now - openAt) / 240f);
         boolean opening = p < 1f;
-        for (TextFieldWidget f : fields) f.visible = !opening;
-
         var m = g.getMatrices();
         m.push();
         if (opening) {
@@ -496,268 +624,356 @@ public class DonutBedScreen extends Screen {
             m.translate(-width / 2f, -height / 2f, 0);
         }
 
-        super.render(g, mx, my, delta);
-        drawChrome(g, mx, my);
-        switch (tab) {
-            case 0 -> renderDashboard(g, mx, my);
-            case 1 -> renderPricing(g, mx, my);
-            case 2 -> renderScan(g, mx, my);
-            case 3 -> renderItems(g, mx, my);
-            case 4 -> renderPrices(g, mx, my);
-            case 5 -> renderDeals(g, mx, my);
-            case 6 -> renderAlerts(g, mx, my);
-            case 7 -> renderProfit(g, mx, my);
-            default -> renderHistory(g, mx, my);
+        drawWindow(g, now);
+        drawHeader(g, mx, my, now);
+        if (!collapsed) {
+            drawSidebar(g, mx, my, now);
+            switch (tab) {
+                case 0 -> renderDashboard(g, mx, my);
+                case 1 -> renderSettings(g, mx, my);
+                case 2 -> renderItems(g, mx, my);
+                case 3 -> renderPrices(g, mx, my);
+                case 4 -> renderDeals(g, mx, my);
+                case 5 -> renderAlerts(g, mx, my);
+                case 6 -> renderProfit(g, mx, my);
+                default -> renderHistory(g, mx, my);
+            }
         }
+        if (editKey != null && !editFound) stopEdit();
 
-        // fade-in when switching tabs
-        float tf = Math.min(1f, (now - tabSwitchAt) / 200f);
-        if (tf < 1f) {
-            g.fill(cx - 6, top + 31, left + W, top + H, (((int) ((1f - tf) * 235)) << 24) | 0x121428);
+        // the shared text editor is drawn last so it sits on top of its box
+        super.render(g, mx, my, delta);
+
+        float tf = Math.min(1f, (now - tabSwitchAt) / 180f);
+        if (tf < 1f && !collapsed) {
+            g.fill(cx - 4, top + HEAD + 1, left + W, top + H, (((int) ((1f - tf) * 235)) << 24) | 0x140B26);
         }
-        if (opening) g.fill(left - 8, top - 8, left + W + 8, top + H + 8, ((int) ((1f - p) * 200) << 24) | 0x05060C);
+        if (opening) g.fill(left - 8, top - 8, left + W + 8, top + winH() + 8, (((int) ((1f - p) * 200)) << 24) | 0x05030C);
         m.pop();
 
-        // tooltip
         if (tip != null && !opening) {
             int tw = textRenderer.getWidth(tip) + 12;
             int tx = Math.min(mx + 10, width - tw - 4);
             int ty = Math.min(my + 12, height - 20);
-            rrect(g, tx - 1, ty - 1, tw + 2, 18, acc());
-            rrect(g, tx, ty, tw, 16, 0xFF0E1020);
-            txt(g, tip, tx + 6, ty + 4, 0xFFE6E8FF);
+            panel(g, tx, ty, tw, 16, 0xFF0E0820, acc());
+            txt(g, tip, tx + 6, ty + 4, TXT);
         }
     }
 
-    private void drawChrome(DrawContext g, int mx, int my) {
+    private void drawHeader(DrawContext g, int mx, int my, long t) {
         int a = acc();
-        long t = System.currentTimeMillis();
+        g.fillGradient(left, top, left + W, top + HEAD, shade(a, -85), 0xFF1B1033);
+        g.fill(left, top + HEAD - 1, left + W, top + HEAD, lerp(shade(a, -40), a, 0.5f + 0.5f * (float) Math.sin(t / 500.0)));
 
-        // header
-        g.fillGradient(left, top, left + W, top + 28, shade(a, -50), shade(a, -140));
-        float bob = (float) Math.sin(t / 500.0);
-        drawDonut(g, left + 9, top + 9 + Math.round(bob * 0.8f));
-        big(g, "DONUT BED CLIENT", left + 26, top + 9, 1.25f, 0xFFFFFFFF);
-        // theme picker
-        for (int i = 0; i < THEME.length; i++) {
-            int x = left + W - 8 - (THEME.length - i) * 11 + 3;
-            int y = top + 10;
-            boolean sel = Config.INSTANCE.theme == i;
-            boolean hov = in(mx, my, x - 1, y - 1, 10, 10);
-            if (sel) g.fill(x - 1, y - 1, x + 9, y + 9, 0xFFFFFFFF);
-            rrect(g, x, y, 8, 8, hov ? shade(THEME[i], 30) : THEME[i]);
-            if (hov) tip = "Theme: " + THEME_NAMES[i];
+        int bob = Math.round((float) Math.sin(t / 500.0) * 1f);
+        bitmap(g, DONUT, left + 10, top + 7 + bob, PINK, 2);
+        g.fill(left + 16, top + 13 + bob, left + 18, top + 15 + bob, 0xFFFFFFFF);
+        g.fill(left + 24, top + 17 + bob, left + 26, top + 19 + bob, 0xFFFFE066);
+        g.fill(left + 12, top + 19 + bob, left + 14, top + 21 + bob, CYAN);
+        big(g, "DONUT BED CLIENT", left + 38, top + 6, 1.4f, 0xFFFFFFFF);
+        txt(g, "auto-undercut seller", left + 38, top + 22, MUTED);
+
+        // window buttons
+        int bx = left + W - 8 - 3 * 18;
+        for (int i = 0; i < 3; i++) {
+            int x = bx + i * 18, y = top + 9;
+            boolean hov = hover(mx, my, x, y, 15, 15);
+            panel(g, x, y, 15, 15, hov ? (i == 2 ? 0xFF5A1530 : 0xFF2E1B52) : 0xFF160D2B, hov ? (i == 2 ? RED : a) : BORDER);
+            int col = hov && i == 2 ? RED : TXT;
+            if (i == 0) g.fill(x + 4, y + 10, x + 11, y + 11, col);
+            else if (i == 1) {
+                g.fill(x + 4, y + 4, x + 11, y + 5, col);
+                g.fill(x + 4, y + 10, x + 11, y + 11, col);
+                g.fill(x + 4, y + 4, x + 5, y + 11, col);
+                g.fill(x + 10, y + 4, x + 11, y + 11, col);
+            } else {
+                for (int k = 0; k < 7; k++) {
+                    g.fill(x + 4 + k, y + 4 + k, x + 5 + k, y + 5 + k, col);
+                    g.fill(x + 10 - k, y + 4 + k, x + 11 - k, y + 5 + k, col);
+                }
+            }
             final int idx = i;
-            hits.add(new Hit(x - 1, y - 1, 10, 10, () -> { Config.INSTANCE.theme = idx; Config.INSTANCE.save(); }));
-        }
-        g.fill(left, top + 28, left + W, top + 30, 0xFF23274A);
-        int seg = left + (int) ((t / 6) % (W + 80)) - 80;
-        g.fill(Math.max(left, seg), top + 28, Math.min(left + W, seg + 80), top + 30, a);
-
-        // sidebar
-        g.fill(left, top + 30, left + SIDE, top + H, 0xFF0D0E1A);
-        g.fill(left + SIDE, top + 30, left + SIDE + 1, top + H, 0xFF23274A);
-
-        float target = top + 34 + tab * 19;
-        tabHiY = tabHiY < 0 ? target : tabHiY + (target - tabHiY) * 0.3f;
-        rrect(g, left + 4, Math.round(tabHiY), SIDE - 8, 17, 0xFF1D2347);
-        g.fill(left + 4, Math.round(tabHiY) + 3, left + 6, Math.round(tabHiY) + 14, a);
-
-        for (int i = 0; i < TABS.length; i++) {
-            int x = left + 4, y = top + 34 + i * 19, w = SIDE - 8;
-            boolean sel = tab == i;
-            boolean hov = in(mx, my, x, y, w, 17);
-            if (hov && !sel) rrect(g, x, y, w, 17, 0xFF151833);
-            int ic = sel ? a : (hov ? 0xFFC8CCE8 : 0xFF6C7298);
-            bitmap(g, ICONS[i], x + 6, y + 4, ic);
-            txt(g, TABS[i], x + 18, y + 5, sel ? 0xFFFFFFFF : (hov ? 0xFFDDE0F5 : 0xFF8A90B8));
-            final int idx = i;
-            hits.add(new Hit(x, y, w, 17, () -> {
-                tab = idx;
-                page = 0;
-                reopen();
+            hits.add(new Hit(x, y, 15, 15, () -> {
+                if (idx == 0) collapsed = true;
+                else if (idx == 1) collapsed = false;
+                else close();
+                stopEdit();
             }));
         }
+        // connected pill
+        boolean on = client != null && client.player != null && client.getNetworkHandler() != null;
+        String ct = on ? "Connected" : "Offline";
+        int pw = textRenderer.getWidth(ct) + 24;
+        int px = bx - 8 - pw;
+        panel(g, px, top + 8, pw, 17, 0xFF160D2B, on ? 0xFF2A8A58 : 0xFF8A2A40);
+        rrect(g, px + 7, top + 14, 6, 6, on ? GREEN : RED);
+        txt(g, ct, px + 17, top + 12, TXT);
+    }
 
-        // sidebar footer
+    private void drawSidebar(DrawContext g, int mx, int my, long t) {
+        int a = acc();
+        g.fill(left, top + HEAD, left + SIDE, top + H, 0xFF120A24);
+        g.fill(left + SIDE, top + HEAD, left + SIDE + 1, top + H, BORDER);
+
+        float target = top + HEAD + 8 + tab * 22;
+        tabHiY = tabHiY < 0 ? target : tabHiY + (target - tabHiY) * 0.3f;
+        int hy = Math.round(tabHiY);
+        rrect(g, left + 5, hy, SIDE - 10, 19, shade(a, -70));
+        g.fillGradient(left + 6, hy + 1, left + SIDE - 6, hy + 18, shade(a, 35), shade(a, -45));
+        g.fill(left + 7, hy + 1, left + SIDE - 7, hy + 2, alpha(0xFFFFFF, 60));
+
+        for (int i = 0; i < TABS.length; i++) {
+            int x = left + 5, y = top + HEAD + 8 + i * 22, w = SIDE - 10;
+            boolean sel = tab == i;
+            boolean hov = hover(mx, my, x, y, w, 19);
+            if (hov && !sel) panel(g, x, y, w, 19, 0xFF1A1033, BORDER);
+            bitmap(g, ICONS[i], x + 8, y + 5, sel ? 0xFFFFFFFF : (hov ? 0xFFD8C8F8 : MUTED), 1);
+            txt(g, TABS[i], x + 22, y + 6, sel ? 0xFFFFFFFF : (hov ? 0xFFEADFFF : MUTED));
+            final int idx = i;
+            hits.add(new Hit(x, y, w, 19, () -> goTab(idx)));
+        }
+
         AutoSeller.Status st = AutoSeller.status;
-        int fy = top + H - 38;
-        g.fill(left + 8, fy - 6, left + SIDE - 8, fy - 5, 0xFF23274A);
-        rrect(g, left + 8, fy + 2, 6, 6, pulsing(st));
-        txt(g, st.name().replace('_', ' '), left + 18, fy, statusColor(st));
-        txt(g, "Total", left + 8, fy + 13, 0xFF6C7298);
-        long total = animNum("sideTotal", Profit.total());
-        txt(g, textRenderer.trimToWidth(Profit.compactSigned(total), SIDE - 14), left + 8, fy + 23, profitColor(total));
+        int fy = top + H - 24;
+        g.fill(left + 8, fy - 5, left + SIDE - 8, fy - 4, BORDER);
+        rrect(g, left + 9, fy + 2, 6, 6, pulsing(st));
+        txt(g, st.name().replace('_', ' '), left + 19, fy, statusColor(st));
+        txt(g, "v1.2", left + 9, fy + 11, DIM);
     }
 
-    private void title(DrawContext g, String s, int y) {
-        big(g, s, cx, y, 1.3f, 0xFFFFFFFF);
-        g.fill(cx, y + 12, cx + 22, y + 13, acc());
-    }
-
-    // ---- dashboard
+    // ------------------------------------------------------------ dashboard
 
     private void renderDashboard(DrawContext g, int mx, int my) {
         Config c = Config.INSTANCE;
         AutoSeller.Status st = AutoSeller.status;
-        int y0 = top + 36;
-        title(g, "Dashboard", y0);
+        title(g, "Dashboard", "Overview of your selling activity");
 
-        // status card
-        int y = y0 + 17;
-        rrect(g, cx, y, cw, 44, 0xFF1A1D33);
-        g.fillGradient(cx + 1, y + 1, cx + cw - 1, y + 22, alpha(statusColor(st), 26), alpha(statusColor(st), 0));
-        g.fill(cx + 1, y + 3, cx + 4, y + 41, statusColor(st));
-        rrect(g, cx + 12, y + 9, 8, 8, pulsing(st));
-        big(g, st.name().replace('_', ' '), cx + 26, y + 8, 1.4f, statusColor(st));
-        txt(g, "Item: " + AutoSeller.currentName, cx + 12, y + 29, 0xFF8A90B8);
-        if (st == AutoSeller.Status.SCANNING || st == AutoSeller.Status.SELLING || st == AutoSeller.Status.PRICE_FOUND) {
-            spinner(g, cx + cw - 26, y + 22, 9, statusColor(st));
-        } else {
-            sparkline(g, cx + cw - 100, y + 8, 88, 28);
-        }
-        txt(g, textRenderer.trimToWidth(AutoSeller.message, cw), cx + 2, y + 48,
-                st == AutoSeller.Status.ERROR ? 0xFFFF8D90 : 0xFFA6ABCB);
+        int y = y0 + 26;
+        int sc = statusColor(st);
+        panel(g, cx, y, cw, 42, ROW, BORDER);
+        g.fillGradient(cx + 1, y + 1, cx + cw - 1, y + 20, alpha(sc, 22), alpha(sc, 0));
+        rrect(g, cx + 12, y + 11, 9, 9, pulsing(st));
+        big(g, st.name().replace('_', ' '), cx + 28, y + 7, 1.5f, st == AutoSeller.Status.IDLE ? 0xFFFFFFFF : sc);
+        String sub = st == AutoSeller.Status.IDLE ? (c.enabled ? "Waiting for next cycle..." : "Ready to start selling") : AutoSeller.message;
+        txt(g, textRenderer.trimToWidth(sub, cw - 100), cx + 28, y + 26, MUTED);
+        Config.ItemCfg cur = cfgByName(AutoSeller.currentName);
+        if (cur == null) cur = c.items.get(0);
+        icon(g, iconStack(cur, null), cx + cw - 42, y + 5, 2f);
 
-        // stat cards
-        y += 62;
-        int cwid = (cw - 8) / 3;
-        card(g, cx, y, cwid, 34, "MARKET PRICE", money(AutoSeller.cheapest), 0xFFFFFFFF);
-        card(g, cx + cwid + 4, y, cwid, 34, "SELLING AT", money(AutoSeller.sellPrice), 0xFF4DD8FF);
-        long total = animNum("dashTotal", Profit.total());
-        card(g, cx + 2 * (cwid + 4), y, cwid, 34, "PROFIT", Profit.compactSigned(total), profitColor(total));
-
-        // start / stop
-        y += 40;
+        y += 46;
         boolean on = c.enabled;
         if (on) {
             float glow = 0.5f + 0.5f * (float) Math.sin(System.currentTimeMillis() / 300.0);
-            rrect(g, cx - 2, y - 2, cw + 4, 30, lerp(0xFF1A1D33, 0xFF7A2A30, 0.4f + glow * 0.6f));
+            rrect(g, cx - 2, y - 2, cw + 4, 26, lerp(0xFF1B1033, 0xFF7A2A40, 0.4f + glow * 0.6f));
         }
-        button(g, mx, my, cx, y, cw, 26, on ? "STOP" : "START",
-                on ? 0xFFEF5358 : 0xFF38CC7B, on ? 0xFF9E2B30 : 0xFF1C8A50, () -> {
+        gradButton(g, mx, my, cx, y, cw, 22, on ? "STOP" : ">  START",
+                on ? 0xFFFF6B85 : shade(acc(), 40), on ? 0xFFA0233F : shade(acc(), -45), () -> {
                     c.enabled = !c.enabled;
                     c.save();
                     if (c.enabled) close();
                 });
 
-        // quick toggles
-        y += 32;
-        int hw = (cw - 4) / 2;
-        toggleRow(g, mx, my, cx, y, hw, "Auto Sell", c.autoSell, () -> { c.autoSell = !c.autoSell; c.save(); });
-        toggleRow(g, mx, my, cx + hw + 4, y, hw, "Auto-pick", c.autoPickBed, () -> { c.autoPickBed = !c.autoPickBed; c.save(); });
-
-        // cooldown bar
         y += 26;
-        long now = System.currentTimeMillis();
-        long remaining = Math.max(0, AutoSeller.nextAllowed - now);
-        float frac = c.enabled && c.cooldownMs > 0 ? 1f - Math.min(1f, remaining / (float) c.cooldownMs) : 0f;
-        rrect(g, cx, y, cw, 6, 0xFF12142A);
-        if (frac > 0.02f) {
-            g.fillGradient(cx + 1, y + 1, cx + 1 + Math.round((cw - 2) * frac), y + 5, acc(), shade(acc(), -80));
+        int cwid = (cw - 8) / 3;
+        card(g, cx, y, cwid, 30, "MARKET PRICE", money(AutoSeller.cheapest), 0xFFFFFFFF);
+        card(g, cx + cwid + 4, y, cwid, 30, "SELLING AT", money(AutoSeller.sellPrice), CYAN);
+        long total = animNum("dashTotal", Profit.total());
+        card(g, cx + 2 * (cwid + 4), y, cwid, 30, "PROFIT (EST)", Profit.compactSigned(total), profitColor(total));
+
+        y += 34;
+        int tw = (cw - 8) / 3;
+        toggleAt(g, mx, my, cx, y, tw, 18, "Auto Sell", c.autoSell, () -> { c.autoSell = !c.autoSell; c.save(); });
+        toggleAt(g, mx, my, cx + tw + 4, y, tw, 18, "Auto-pick", c.autoPickBed, () -> { c.autoPickBed = !c.autoPickBed; c.save(); });
+        toggleAt(g, mx, my, cx + 2 * (tw + 4), y, tw, 18, "Outlier Guard", c.outlierProtect, () -> { c.outlierProtect = !c.outlierProtect; c.save(); });
+
+        y += 22;
+        segRow(g, mx, my, y, "Selling speed", SPEEDS, c.speed, v -> { c.speed = v; c.save(); });
+
+        y += 22;
+        panel(g, cx, y, cw, 34, ROW, BORDER);
+        int enabled = 0;
+        for (Config.ItemCfg it : c.items) if (it.enabled) enabled++;
+        int colW = cw / 2;
+        bitmap(g, I_TAG, cx + 8, y + 5, acc(), 1);
+        txt(g, "Items Rotating: " + enabled, cx + 22, y + 5, TXT);
+        bitmap(g, I_DOWN, cx + colW + 4, y + 5, PINK, 1);
+        txt(g, "Undercut: " + (c.undercutMode == 1 ? c.undercutPercent + "%" : Profit.money(c.undercut)), cx + colW + 18, y + 5, TXT);
+        bitmap(g, I_TAG, cx + 8, y + 19, GOLD, 1);
+        txt(g, "Min Price: " + Profit.money(c.minPrice), cx + 22, y + 19, TXT);
+        bitmap(g, I_KEY, cx + colW + 4, y + 19, GOLD, 1);
+        txt(g, "Menu Key: " + DonutBedClient.openKey.getBoundKeyLocalizedText().getString(), cx + colW + 18, y + 19, TXT);
+    }
+
+    // ------------------------------------------------------------ settings (scrollable)
+
+    private void renderSettings(DrawContext g, int mx, int my) {
+        Config c = Config.INSTANCE;
+        title(g, "Settings", "Configure automation and filters");
+
+        int vTop = y0 + 26, vBot = top + H - 28;
+        clipTop = vTop;
+        clipBot = vBot;
+        g.enableScissor(cx - 4, vTop, cx + cw + 6, vBot);
+        int startY = vTop - Math.round(scrollCur);
+        int y = startY;
+
+        y = section(g, y, "SELLING");
+        y = toggleRow(g, mx, my, y, "Auto Sell", c.autoSell, () -> { c.autoSell = !c.autoSell; c.save(); });
+        y = toggleRow(g, mx, my, y, "Auto-pick item from inventory", c.autoPickBed, () -> { c.autoPickBed = !c.autoPickBed; c.save(); });
+        y = segRow(g, mx, my, y, "Selling speed", SPEEDS, c.speed, v -> { c.speed = v; c.save(); });
+        y = numRow(g, mx, my, y, "Price cache (s)", "s.cache", c.priceCacheSec, 5, 0, 300, v -> c.priceCacheSec = (int) (long) v);
+        y = numRow(g, mx, my, y, "Default undercut ($)", "s.undercut", c.undercut, 50, 0, 1_000_000_000L, v -> c.undercut = v);
+        y = toggleRow(g, mx, my, y, "Percent undercut", c.undercutMode == 1, () -> { c.undercutMode = c.undercutMode == 1 ? 0 : 1; c.save(); });
+        y = decRow(g, mx, my, y, "Percent undercut (%)", "s.pct", c.undercutPercent, 0.5, 0, 50, v -> c.undercutPercent = v);
+        y = numRow(g, mx, my, y, "Default minimum price ($)", "s.min", c.minPrice, 500, 0, 1_000_000_000L, v -> c.minPrice = v);
+        y = numRow(g, mx, my, y, "Min profit per item ($)", "s.minprofit", c.minProfit, 100, 0, 1_000_000_000L, v -> c.minProfit = v);
+        y = toggleRow(g, mx, my, y, "Outlier protection", c.outlierProtect, () -> { c.outlierProtect = !c.outlierProtect; c.save(); });
+        y = numRow(g, mx, my, y, "Lowball threshold (%)", "s.lowball", c.outlierPercent, 5, 5, 90, v -> c.outlierPercent = (int) (long) v);
+
+        y = section(g, y + 2, "SCANNING");
+        y = toggleRow(g, mx, my, y, "Auto sort (lowest first)", c.autoSort, () -> { c.autoSort = !c.autoSort; c.save(); });
+        y = toggleRow(g, mx, my, y, "Per-item pricing (stacks)", c.perItemPrice, () -> { c.perItemPrice = !c.perItemPrice; c.save(); });
+        y = numRow(g, mx, my, y, "Max pages to read", "s.pages", c.scanPages, 1, 1, 20, v -> c.scanPages = (int) (long) v);
+        y = numRow(g, mx, my, y, "Scan delay (ms)", "s.delay", c.scanDelayMs, 50, 100, 10000, v -> c.scanDelayMs = (int) (long) v);
+        y = numRow(g, mx, my, y, "Auction timeout (s)", "s.timeout", c.timeoutMs / 1000, 1, 2, 60, v -> c.timeoutMs = (int) (v * 1000));
+        y = numRow(g, mx, my, y, "Cooldown (s)", "s.cooldown", c.cooldownMs / 1000, 1, 2, 600, v -> c.cooldownMs = (int) (v * 1000));
+        y = toggleRow(g, mx, my, y, "Debug messages in chat", c.debug, () -> { c.debug = !c.debug; c.save(); });
+
+        y = section(g, y + 2, "DEALS");
+        y = toggleRow(g, mx, my, y, "Deal finder", c.dealFinder, () -> { c.dealFinder = !c.dealFinder; c.save(); });
+        y = numRow(g, mx, my, y, "Min discount (%)", "s.deal", c.dealPercent, 5, 5, 95, v -> c.dealPercent = (int) (long) v);
+
+        y = section(g, y + 2, "APPEARANCE");
+        rowBg(g, mx, my, cx, y, cw, 18, "Theme");
+        for (int i = 0; i < THEME.length; i++) {
+            int x = cx + cw - 8 - (THEME.length - i) * 16;
+            boolean sel = c.theme == i;
+            boolean hov = hover(mx, my, x, y + 3, 12, 12);
+            if (sel) panel(g, x - 2, y + 1, 16, 16, 0xFFFFFFFF, 0xFFFFFFFF);
+            rrect(g, x, y + 3, 12, 12, hov ? shade(THEME[i], 30) : THEME[i]);
+            if (hov) tip = "Theme: " + THEME_NAMES[i];
+            final int idx = i;
+            addHit(x, y + 3, 12, 12, () -> { c.theme = idx; c.save(); });
         }
-        txt(g, c.enabled ? (remaining > 0 ? "Next cycle in " + String.format("%.1fs", remaining / 1000.0) : "Ready")
-                : "Stopped - press START", cx, y + 9, 0xFF6C7298);
-        txtRight(g, "Keys 1-9 switch tabs", cx + cw, y + 9, 0xFF4A5078);
+        y += 22;
+
+        g.disableScissor();
+        clipTop = Integer.MIN_VALUE;
+        clipBot = Integer.MAX_VALUE;
+
+        float contentH = y - startY;
+        maxScroll = Math.max(0f, contentH - (vBot - vTop) + 2);
+        scrollTarget = Math.max(0f, Math.min(maxScroll, scrollTarget));
+        scrollCur += (scrollTarget - scrollCur) * 0.35f;
+        if (maxScroll > 0) {
+            int trackH = vBot - vTop;
+            int barH = Math.max(14, Math.round(trackH * trackH / (trackH + maxScroll)));
+            int barY = vTop + Math.round((trackH - barH) * (scrollCur / maxScroll));
+            g.fill(cx + cw + 3, vTop, cx + cw + 6, vBot, 0xFF150C2A);
+            rrect(g, cx + cw + 3, barY, 3, barH, acc());
+        }
+
+        int by = top + H - 24;
+        int bw = (cw - 6) / 2;
+        outline(g, mx, my, cx, by, bw, 18, "Reset to Default", false, () -> {
+            c.resetSettings();
+            c.save();
+            say("Settings reset to default");
+        });
+        primary(g, mx, my, cx + bw + 6, by, bw, 18, "Save Settings", () -> {
+            c.sanitize();
+            c.save();
+            say("Settings saved");
+        });
     }
 
-    // ---- pricing
-
-    private void renderPricing(DrawContext g, int mx, int my) {
-        Config c = Config.INSTANCE;
-        int y0 = top + 36;
-        title(g, "Pricing", y0);
-        int y = y0 + 16;
-        toggleRow(g, mx, my, cx, y, cw, "Percent undercut", c.undercutMode == 1, () -> { c.undercutMode = c.undercutMode == 1 ? 0 : 1; c.save(); });
-        toggleRow(g, mx, my, cx, y + 22, cw, "Outlier protection", c.outlierProtect, () -> { c.outlierProtect = !c.outlierProtect; c.save(); });
-
-        String[] labels = { "Flat undercut ($)", "Percent undercut (%)", "Minimum price ($)", "Min profit per item ($)", "Lowball threshold (%)" };
-        int base = y + 2 * 22 + 4;
-        for (int i = 0; i < labels.length; i++) fieldRow(g, mx, my, cx, base + i * 21, cw, 20, labels[i]);
-
-        // live preview
-        long sample = 25000;
-        long under = c.undercutMode == 1 ? Math.max(1, Math.round(sample * c.undercutPercent / 100.0)) : c.undercut;
-        int py = base + 5 * 21 + 3;
-        rrect(g, cx, py, cw, 20, 0xFF12142A);
-        txt(g, "Preview: market $25,000  ->  list at " + Profit.money(sample - under), cx + 8, py + 6, 0xFF4DD8FF);
-    }
-
-    // ---- scan
-
-    private void renderScan(DrawContext g, int mx, int my) {
-        Config c = Config.INSTANCE;
-        int y0 = top + 36;
-        title(g, "Scan", y0);
-        int y = y0 + 16;
-        toggleRow(g, mx, my, cx, y, cw, "Auto sort (lowest first)", c.autoSort, () -> { c.autoSort = !c.autoSort; c.save(); });
-        toggleRow(g, mx, my, cx, y + 22, cw, "Per-item pricing (stacks)", c.perItemPrice, () -> { c.perItemPrice = !c.perItemPrice; c.save(); });
-        toggleRow(g, mx, my, cx, y + 44, cw, "Debug messages in chat", c.debug, () -> { c.debug = !c.debug; c.save(); });
-
-        String[] labels = { "Max pages to read", "Scan delay (ms)", "Auction timeout (s)", "Cooldown (s)" };
-        int base = y + 3 * 22 + 4;
-        for (int i = 0; i < labels.length; i++) fieldRow(g, mx, my, cx, base + i * 21, cw, 20, labels[i]);
-        txt(g, "Tip: hover any row for a description.", cx, base + 4 * 21 + 6, 0xFF4A5078);
-    }
-
-    // ---- items
+    // ------------------------------------------------------------ items
 
     private void renderItems(DrawContext g, int mx, int my) {
         Config c = Config.INSTANCE;
-        int y0 = top + 36;
-        title(g, "Items", y0);
+        title(g, "Items", "Manage which items to sell");
         List<Config.ItemCfg> items = c.items;
         int n = items.size();
         Config.ItemCfg it = selItem();
+        final long mult = hasShiftDown() ? 10 : 1;
 
-        int sy = y0 + 16;
-        smallButton(g, mx, my, cx, sy, 24, 20, "<", true, () -> { itemSel = (itemSel - 1 + n) % n; reopen(); });
-        smallButton(g, mx, my, cx + cw - 24, sy, 24, 20, ">", true, () -> { itemSel = (itemSel + 1) % n; reopen(); });
-        rrect(g, cx + 28, sy, cw - 56, 20, 0xFF1A1D33);
-        g.drawCenteredTextWithShadow(textRenderer,
-                Text.literal(textRenderer.trimToWidth(it.name, cw - 100) + "  (" + (itemSel + 1) + "/" + n + ")"),
-                cx + cw / 2, sy + 6, 0xFFFFFFFF);
+        int y = y0 + 26;
+        // selector
+        gradButton(g, mx, my, cx, y, 24, 18, "<", shade(acc(), 30), shade(acc(), -50), () -> { itemSel = (itemSel - 1 + n) % n; stopEdit(); });
+        gradButton(g, mx, my, cx + cw - 24, y, 24, 18, ">", shade(acc(), 30), shade(acc(), -50), () -> { itemSel = (itemSel + 1) % n; stopEdit(); });
+        panel(g, cx + 28, y, cw - 56, 18, ROW, BORDER);
+        icon(g, iconStack(it, it.name), cx + cw / 2 - 40, y + 1, 1f);
+        txtCenter(g, textRenderer.trimToWidth(it.name, 90) + " (" + (itemSel + 1) + "/" + n + ")", cx + cw / 2 + 6, y + 5, 0xFFFFFFFF);
 
-        toggleRow(g, mx, my, cx, y0 + 40, cw, "Enabled (rotates in)", it.enabled, () -> { it.enabled = !it.enabled; c.save(); });
+        y += 22;
+        toggleAt(g, mx, my, cx, y, cw, 16, "Enabled (rotates in)", it.enabled, () -> { it.enabled = !it.enabled; c.save(); });
+        y += 18;
+        String m = "@bed".equals(it.match) ? (it.colorMask == 0 ? "Any bed (all colors)" : "Selected bed colors only") : it.match;
+        panel(g, cx, y, cw, 14, BOX, BORDER);
+        txt(g, textRenderer.trimToWidth("Matches: " + m, cw - 12), cx + 8, y + 3, MUTED);
 
-        String m = "@bed".equals(it.match) ? "Any bed (all colors)" : it.match;
-        rrect(g, cx, y0 + 62, cw, 19, 0xFF12142A);
-        txt(g, textRenderer.trimToWidth("Matches: " + m, cw - 12), cx + 8, y0 + 67, 0xFF8A90B8);
+        y += 16;
+        panel(g, cx, y, cw, 16, ROW, BORDER);
+        bitmap(g, I_SEARCH, cx + 7, y + 4, MUTED, 1);
+        valueBox(g, mx, my, "i.search", cx + 20, y + 1, cw - 22, 14, it.search, "Search item name... (e.g. bed)", 2, 40,
+                it.search == null ? "" : it.search, s -> it.search = s, false);
 
-        int base = y0 + 84;
-        String[] labels = { "Search term (/ah ...)", "Cost per item ($)", "Minimum price ($)", "Undercut ($)" };
-        for (int i = 0; i < labels.length; i++) fieldRow(g, mx, my, cx, base + i * 21, cw, 20, labels[i]);
-        int fx = cx + cw - 86;
-        if (it.minPrice < 0) txt(g, "default", fx + 6, base + 2 * 21 + 6, 0xFF5A6088);
-        if (it.undercut < 0) txt(g, "default", fx + 6, base + 3 * 21 + 6, 0xFF5A6088);
+        y += 18;
+        y = numRowX(g, mx, my, y, "Cost per item ($)", "i.cost", String.format("%,d", it.cost), String.valueOf(it.cost),
+                () -> it.cost = it.cost + 100 * mult, () -> it.cost = Math.max(0, it.cost - 100 * mult),
+                s -> { try { it.cost = s.isEmpty() ? 0 : Long.parseLong(s); } catch (Exception ignored) {} }, 16);
+        y = numRowX(g, mx, my, y, "Minimum price ($)", "i.min", it.minPrice < 0 ? "default" : String.format("%,d", it.minPrice),
+                it.minPrice < 0 ? "" : String.valueOf(it.minPrice),
+                () -> it.minPrice = it.minPrice < 0 ? c.minPrice : it.minPrice + 500 * mult,
+                () -> it.minPrice = it.minPrice <= 0 ? -1 : Math.max(0, it.minPrice - 500 * mult),
+                s -> { try { it.minPrice = s.isEmpty() ? -1 : Long.parseLong(s); } catch (Exception ignored) {} }, 16);
+        y = numRowX(g, mx, my, y, "Undercut ($)", "i.under", it.undercut < 0 ? "default" : String.format("%,d", it.undercut),
+                it.undercut < 0 ? "" : String.valueOf(it.undercut),
+                () -> it.undercut = it.undercut < 0 ? c.undercut : it.undercut + 50 * mult,
+                () -> it.undercut = it.undercut <= 0 ? -1 : Math.max(0, it.undercut - 50 * mult),
+                s -> { try { it.undercut = s.isEmpty() ? -1 : Long.parseLong(s); } catch (Exception ignored) {} }, 16);
 
-        int by = y0 + 172;
-        smallButton(g, mx, my, cx, by, 140, 18, "+ Add item in hand", true, () -> addHeld(c));
-        button(g, mx, my, cx + cw - 100, by, 100, 18, "Remove item",
-                n > 1 ? 0xFFEF5358 : 0xFF3A3F5C, n > 1 ? 0xFF9E2B30 : 0xFF262A44, () -> {
-                    if (n > 1) {
+        // bed color filter
+        if ("@bed".equals(it.match)) {
+            int slot = cw / 16;
+            for (int i = 0; i < 16; i++) {
+                int x = cx + i * slot + (slot - 14) / 2;
+                boolean sel = ((it.colorMask >> i) & 1) != 0;
+                boolean hov = hover(mx, my, x - 1, y - 1, 16, 16);
+                if (sel) panel(g, x - 2, y - 2, 18, 18, shade(acc(), -80), acc());
+                else if (hov) panel(g, x - 2, y - 2, 18, 18, ROW_H, BORDER);
+                icon(g, new ItemStack(Registries.ITEM.get(Identifier.of("minecraft", Config.BED_COLORS[i] + "_bed"))), x, y, 0.875f);
+                if (hov) tip = "Only sell " + Config.BED_COLORS[i].replace('_', ' ') + " beds (click again to remove)";
+                final int bit = i;
+                addHit(x - 2, y - 2, 18, 18, () -> { it.colorMask ^= (1 << bit); c.save(); });
+            }
+        } else {
+            txt(g, "Filter: exact item " + it.match, cx, y + 3, DIM);
+        }
+
+        y += 20;
+        primary(g, mx, my, cx, y, (cw - 6) / 2, 16, "+ Add Item in Hand", () -> addHeld(c));
+        boolean canRemove = n > 1;
+        gradButton(g, mx, my, cx + (cw - 6) / 2 + 6, y, (cw - 6) / 2, 16, "Remove Item",
+                canRemove ? 0xFFFF6B85 : 0xFF4A3D66, canRemove ? 0xFFA0233F : 0xFF2E2446, () -> {
+                    if (canRemove) {
                         items.remove(itemSel);
                         itemSel = 0;
                         c.save();
-                        reopen();
                     }
                 });
-
-        boolean showNote = System.currentTimeMillis() < noteUntil;
-        txt(g, showNote ? note : "Items rotate each round. Empty = use the Pricing default.", cx, y0 + 194,
-                showNote ? 0xFFFFD84D : 0xFF6C7298);
+        txt(g, "Items rotate each round. Empty = use Settings default.", cx, y + 20, DIM);
     }
 
     private void addHeld(Config c) {
         if (client == null || client.player == null) return;
         ItemStack held = client.player.getMainHandStack();
         if (held.isEmpty()) {
-            note = "Hold the item in your main hand first (close menu, hold it, reopen).";
-            noteUntil = System.currentTimeMillis() + 4000;
+            say("Hold the item first (close menu, hold it, reopen).");
             return;
         }
         Config.ItemCfg n = new Config.ItemCfg();
-        if (held.getItem() instanceof BedItem) {
+        if (held.getItem() instanceof net.minecraft.item.BedItem) {
             n.name = "Bed";
             n.match = "@bed";
             n.search = "bed";
@@ -770,9 +986,7 @@ public class DonutBedScreen extends Screen {
         for (int i = 0; i < c.items.size(); i++) {
             if (c.items.get(i).match.equals(n.match)) {
                 itemSel = i;
-                note = n.name + " is already in the list.";
-                noteUntil = System.currentTimeMillis() + 3000;
-                reopen();
+                say(n.name + " is already in the list.");
                 return;
             }
         }
@@ -780,37 +994,33 @@ public class DonutBedScreen extends Screen {
         c.items.add(n);
         itemSel = c.items.size() - 1;
         c.save();
-        note = "Added " + n.name + ". Set its cost and search term below.";
-        noteUntil = System.currentTimeMillis() + 5000;
-        reopen();
+        say("Added " + n.name + ". Set its cost below.");
     }
 
-    // ---- prices
+    // ------------------------------------------------------------ prices
 
     private void renderPrices(DrawContext g, int mx, int my) {
         Config c = Config.INSTANCE;
-        int y0 = top + 36;
-        title(g, "Prices", y0);
+        title(g, "Prices", "Live market prices from /ah");
         List<Config.ItemCfg> items = c.items;
         int n = items.size();
         priceSel = Math.max(0, Math.min(priceSel, n - 1));
         String name = items.get(priceSel).name;
 
-        int sy = y0 + 16;
-        smallButton(g, mx, my, cx, sy, 22, 20, "<", true, () -> { priceSel = (priceSel - 1 + n) % n; });
-        smallButton(g, mx, my, cx + 120, sy, 22, 20, ">", true, () -> { priceSel = (priceSel + 1) % n; });
-        rrect(g, cx + 24, sy, 94, 20, 0xFF1A1D33);
-        g.drawCenteredTextWithShadow(textRenderer, Text.literal(textRenderer.trimToWidth(name, 88)), cx + 71, sy + 6, 0xFFFFFFFF);
-        int rx = cx + 150;
-        int rw = (cw - 150 - 6) / 4;
+        int y = y0 + 26;
+        gradButton(g, mx, my, cx, y, 20, 16, "<", shade(acc(), 30), shade(acc(), -50), () -> priceSel = (priceSel - 1 + n) % n);
+        gradButton(g, mx, my, cx + 106, y, 20, 16, ">", shade(acc(), 30), shade(acc(), -50), () -> priceSel = (priceSel + 1) % n);
+        panel(g, cx + 22, y, 82, 16, ROW, BORDER);
+        txtCenter(g, textRenderer.trimToWidth(name, 76), cx + 63, y + 4, 0xFFFFFFFF);
+        int rw = 34;
         for (int i = 0; i < RANGES.length; i++) {
             final int idx = i;
-            smallButton(g, mx, my, rx + i * (rw + 2), sy, rw, 20, RANGES[i], priceRange == i, () -> priceRange = idx);
+            int x = cx + cw - (RANGES.length - i) * (rw + 3) + 3;
+            outline(g, mx, my, x, y, rw, 16, RANGES[i], priceRange == i, () -> priceRange = idx);
         }
 
         long since = RANGE_MS[priceRange] == 0 ? 0 : System.currentTimeMillis() - RANGE_MS[priceRange];
         List<PriceLog.Point> pts = PriceLog.points(name, since);
-
         long now = -1, lo = -1, hi = -1, avg = -1;
         if (!pts.isEmpty()) {
             now = pts.get(pts.size() - 1).p;
@@ -824,16 +1034,18 @@ public class DonutBedScreen extends Screen {
             }
             avg = sum / pts.size();
         }
+        y += 22;
         int cwid = (cw - 12) / 4;
-        card(g, cx, y0 + 42, cwid, 34, "NOW", money(now), 0xFFFFFFFF);
-        card(g, cx + (cwid + 4), y0 + 42, cwid, 34, "LOW", money(lo), 0xFF4DE08A);
-        card(g, cx + 2 * (cwid + 4), y0 + 42, cwid, 34, "HIGH", money(hi), 0xFFFF5D62);
-        card(g, cx + 3 * (cwid + 4), y0 + 42, cwid, 34, "AVERAGE", money(avg), 0xFF4DD8FF);
+        card(g, cx, y, cwid, 30, "NOW", money(now), 0xFFFFFFFF);
+        card(g, cx + (cwid + 4), y, cwid, 30, "LOW", money(lo), GREEN);
+        card(g, cx + 2 * (cwid + 4), y, cwid, 30, "HIGH", money(hi), RED);
+        card(g, cx + 3 * (cwid + 4), y, cwid, 30, "AVERAGE", money(avg), CYAN);
 
-        drawChart(g, mx, my, cx, y0 + 82, cw, 104, pts);
+        y += 34;
+        drawChart(g, mx, my, cx, y, cw, top + H - 20 - y, pts);
         if (!pts.isEmpty()) {
-            txt(g, PriceLog.shortDate(pts.get(0).t), cx, y0 + 190, 0xFF6C7298);
-            txtRight(g, PriceLog.shortDate(pts.get(pts.size() - 1).t), cx + cw, y0 + 190, 0xFF6C7298);
+            txt(g, PriceLog.shortDate(pts.get(0).t), cx, top + H - 16, DIM);
+            txtRight(g, PriceLog.shortDate(pts.get(pts.size() - 1).t), cx + cw, top + H - 16, DIM);
         }
     }
 
@@ -846,9 +1058,9 @@ public class DonutBedScreen extends Screen {
     }
 
     private void drawChart(DrawContext g, int mx, int my, int x, int y, int w, int h, List<PriceLog.Point> pts) {
-        rrect(g, x, y, w, h, 0xFF12142A);
+        panel(g, x, y, w, h, BOX, BORDER);
         if (pts.isEmpty()) {
-            txt(g, "No price data yet. Run the mod to collect prices.", x + 8, y + h / 2 - 4, 0xFF6C7298);
+            txt(g, "No price data yet. Run the mod to collect prices.", x + 10, y + h / 2 - 4, DIM);
             return;
         }
         long tmin = pts.get(0).t, tmax = pts.get(pts.size() - 1).t;
@@ -861,10 +1073,12 @@ public class DonutBedScreen extends Screen {
         long realMin = vmin, realMax = vmax;
         if (vmax == vmin) { vmax++; vmin--; }
 
-        int ix = x + 6, iw = w - 12, ytop = y + 16, bot = y + h - 8, ih = bot - ytop;
-        for (int i = 0; i <= 3; i++) {
-            int gy = ytop + ih * i / 3;
-            g.fill(ix, gy, ix + iw, gy + 1, 0xFF1E2140);
+        int ix = x + 34, iw = w - 42, ytop = y + 8, bot = y + h - 8, ih = bot - ytop;
+        for (int i = 0; i <= 4; i++) {
+            int gy = ytop + ih * i / 4;
+            g.fill(ix, gy, ix + iw, gy + 1, 0xFF22163F);
+            long v = realMax - (realMax - realMin) * i / 4;
+            txtRight(g, Profit.compact(v), ix - 3, gy - 4, DIM);
         }
 
         int a = acc();
@@ -877,184 +1091,215 @@ public class DonutBedScreen extends Screen {
             g.fillGradient(ix + col, py, ix + col + 1, bot, alpha(a, 70), alpha(a, 0));
             int lo2 = prevPy < 0 ? py : Math.min(py, prevPy);
             int hi2 = (prevPy < 0 ? py : Math.max(py, prevPy)) + 2;
-            g.fill(ix + col, lo2, ix + col + 1, hi2, shade(a, 60));
+            g.fill(ix + col, lo2, ix + col + 1, hi2, shade(a, 70));
             prevPy = py;
             lastPy = py;
         }
-
-        // pulsing marker on the latest point
         float pulse = 0.5f + 0.5f * (float) Math.sin(System.currentTimeMillis() / 300.0);
         int mxp = ix + iw - 1;
         g.fill(mxp - 3, lastPy - 2, mxp + 2, lastPy + 4, alpha(a, 40 + Math.round(pulse * 80)));
         g.fill(mxp - 1, lastPy, mxp + 1, lastPy + 2, 0xFFFFFFFF);
 
-        txt(g, Profit.compact(realMax), ix + 2, y + 4, 0xFF8A90B8);
-        txt(g, Profit.compact(realMin), ix + 2, bot - 10, 0xFF8A90B8);
-
-        if (in(mx, my, ix, y, iw, h)) {
+        if (hover(mx, my, ix, y, iw, h)) {
             int col = mx - ix;
             long t = tmin + (tmax - tmin) * col / Math.max(1, iw - 1);
             int k = 0;
             while (k < pts.size() - 2 && pts.get(k + 1).t <= t) k++;
             double v = pts.size() == 1 ? pts.get(0).p : interp(pts, k, t);
             g.fill(mx, ytop, mx + 1, bot, 0x88FFFFFF);
-            txtRight(g, PriceLog.shortDate(t) + "  " + Profit.compact(Math.round(v)), x + w - 6, y + 4, 0xFFFFFFFF);
+            txtRight(g, PriceLog.shortDate(t) + "  " + Profit.compact(Math.round(v)), x + w - 6, y + 3, 0xFFFFFFFF);
         } else {
-            txtRight(g, pts.size() + " points", x + w - 6, y + 4, 0xFF6C7298);
+            txtRight(g, pts.size() + " points", x + w - 6, y + 3, DIM);
         }
     }
 
-    // ---- deals
+    // ------------------------------------------------------------ deals
 
     private void renderDeals(DrawContext g, int mx, int my) {
-        Config c = Config.INSTANCE;
-        int y0 = top + 36;
-        title(g, "Deals", y0);
-        smallButton(g, mx, my, cx + cw - 50, y0 + 1, 50, 14, "Clear", false, () -> Deals.clear());
+        title(g, "Deals", "Listings found far below market");
+        outline(g, mx, my, cx + cw - 50, y0 + 14, 50, 14, "Clear", false, () -> Deals.clear());
 
-        toggleRow(g, mx, my, cx, y0 + 16, cw, "Deal finder", c.dealFinder, () -> { c.dealFinder = !c.dealFinder; c.save(); });
-        fieldRow(g, mx, my, cx, y0 + 38, cw, 20, "Min discount (%)");
-
-        txt(g, "TIME", cx + 4, y0 + 64, acc());
-        txt(g, "ITEM", cx + 64, y0 + 64, acc());
-        txt(g, "PRICE", cx + 106, y0 + 64, acc());
-        txt(g, "RESELL", cx + 156, y0 + 64, acc());
-        txtRight(g, "PROFIT", cx + cw - 4, y0 + 64, acc());
-        g.fill(cx, y0 + 75, cx + cw, y0 + 76, 0xFF2B2F52);
+        int y = y0 + 32;
+        panel(g, cx, y, cw, 14, 0xFF170D2D, BORDER);
+        txt(g, "TIME", cx + 6, y + 3, acc());
+        txt(g, "ITEM", cx + 74, y + 3, acc());
+        txt(g, "PRICE", cx + 140, y + 3, acc());
+        txt(g, "RESELL", cx + 196, y + 3, acc());
+        txtRight(g, "PROFIT", cx + cw - 6, y + 3, acc());
 
         List<Deals.Entry> list = Deals.entries();
         if (list.isEmpty()) {
-            txt(g, "No deals yet. Listings far below market show up here.", cx + 4, y0 + 88, 0xFF8A90B8);
-            txt(g, "Tip: turn Auto Sell OFF to just hunt for deals.", cx + 4, y0 + 100, 0xFF6C7298);
+            txt(g, "No deals yet. Listings far below market show up here.", cx + 6, y + 24, MUTED);
+            txt(g, "Turn Auto Sell OFF to just hunt for deals.", cx + 6, y + 36, DIM);
         }
-        for (int i = 0; i < 9; i++) {
+        for (int i = 0; i < 11; i++) {
             int idx = list.size() - 1 - i;
             if (idx < 0) break;
             Deals.Entry e = list.get(idx);
-            int y = y0 + 79 + i * 13;
-            if (i % 2 == 0) g.fill(cx, y - 1, cx + cw, y + 11, 0xFF161930);
-            txt(g, Deals.time(e.time), cx + 4, y + 1, 0xFFDDE0F5);
-            txt(g, textRenderer.trimToWidth(e.item, 38), cx + 64, y + 1, 0xFFB7C6F5);
-            txt(g, Profit.compact(e.price), cx + 106, y + 1, 0xFFFFFFFF);
-            txt(g, Profit.compact(e.resell), cx + 156, y + 1, 0xFFB7C6F5);
-            txtRight(g, Profit.compactSigned(e.potential), cx + cw - 4, y + 1, 0xFF4DE08A);
+            int ry = y + 17 + i * 14;
+            if (i % 2 == 0) g.fill(cx, ry - 1, cx + cw, ry + 12, 0xFF170D2D);
+            txt(g, Deals.time(e.time), cx + 6, ry + 2, 0xFFDDD0F5);
+            txt(g, textRenderer.trimToWidth(e.item, 60), cx + 74, ry + 2, 0xFFC9B6F5);
+            txt(g, Profit.compact(e.price), cx + 140, ry + 2, 0xFFFFFFFF);
+            txt(g, Profit.compact(e.resell), cx + 196, ry + 2, 0xFFC9B6F5);
+            txtRight(g, Profit.compactSigned(e.potential), cx + cw - 6, ry + 2, GREEN);
         }
     }
 
-    // ---- alerts
+    // ------------------------------------------------------------ alerts
 
     private void renderAlerts(DrawContext g, int mx, int my) {
         Config c = Config.INSTANCE;
-        int y0 = top + 36;
-        title(g, "Alerts", y0);
-        int y = y0 + 16;
-        toggleRow(g, mx, my, cx, y, cw, "Chat notifications", c.notifications, () -> { c.notifications = !c.notifications; c.save(); });
-        toggleRow(g, mx, my, cx, y + 22, cw, "Sound alert", c.soundAlert, () -> { c.soundAlert = !c.soundAlert; c.save(); });
-        toggleRow(g, mx, my, cx, y + 44, cw, "Popup toast", c.toastAlert, () -> { c.toastAlert = !c.toastAlert; c.save(); });
+        title(g, "Alerts", "Get notified when items are listed");
+        int y = y0 + 28;
+        y = toggleRow(g, mx, my, y, "Chat notifications", c.notifications, () -> { c.notifications = !c.notifications; c.save(); });
+        y = toggleRow(g, mx, my, y, "Sound alert", c.soundAlert, () -> { c.soundAlert = !c.soundAlert; c.save(); });
+        y = toggleRow(g, mx, my, y, "Popup toast", c.toastAlert, () -> { c.toastAlert = !c.toastAlert; c.save(); });
 
-        txt(g, "Discord webhook URL (optional)", cx, y0 + 88, 0xFFE6E8FF);
-        if (c.discordWebhook == null || c.discordWebhook.isEmpty()) {
-            txt(g, "https://discord.com/api/webhooks/...", cx + 5, y0 + 105, 0xFF4A5078);
-        }
-        button(g, mx, my, cx, y0 + 126, cw, 22, "Send test alert", acc(), shade(acc(), -75), () -> {
+        y += 6;
+        txt(g, "Discord webhook URL (optional)", cx, y, TXT);
+        y += 12;
+        panel(g, cx, y, cw, 18, ROW, BORDER);
+        valueBox(g, mx, my, "a.hook", cx + 2, y + 2, cw - 22, 14, c.discordWebhook, "https://discord.com/api/webhooks/...", 2, 220,
+                c.discordWebhook == null ? "" : c.discordWebhook, s -> c.discordWebhook = s.trim(), false);
+        bitmap(g, I_LINK, cx + cw - 15, y + 5, MUTED, 1);
+
+        y += 26;
+        primary(g, mx, my, cx, y, cw, 20, "Send Test Alert", () -> {
             c.save();
             AutoSeller.testAlert(client);
         });
-        txt(g, "Alerts fire when an item is listed or a deal is found.", cx, y0 + 156, 0xFF6C7298);
-        txt(g, "The webhook sends the same message to Discord.", cx, y0 + 168, 0xFF6C7298);
+        txt(g, "Alerts fire when an item is listed for sale or a deal is found.", cx, y + 28, DIM);
+        txt(g, "The webhook sends the same message to your Discord channel.", cx, y + 40, DIM);
     }
 
-    // ---- profit
+    // ------------------------------------------------------------ profit
 
     private void renderProfit(DrawContext g, int mx, int my) {
-        int y0 = top + 36;
-        title(g, "Profit", y0);
+        title(g, "Profit", "Track your earnings");
+        long now = System.currentTimeMillis();
+        long start = profitPeriod == 0 ? Profit.startOfToday() : profitPeriod == 1 ? now - 7L * 24 * 3600 * 1000 : 0;
 
-        rrect(g, cx, y0 + 16, cw, 20, 0xFF12142A);
-        txt(g, "Cost per item is set in the Items tab.", cx + 8, y0 + 22, 0xFF8A90B8);
+        outline(g, mx, my, cx + cw - 72, y0 + 12, 72, 16, PERIODS[profitPeriod] + "  v", false, () -> profitPeriod = (profitPeriod + 1) % 3);
 
-        long total = animNum("profitTotal", Profit.total());
-        txt(g, "TOTAL PROFIT", cx, y0 + 42, 0xFF8A90B8);
-        big(g, Profit.signed(total), cx, y0 + 52, 2f, profitColor(total));
+        int y = y0 + 32;
+        long total = animNum("pTotal" + profitPeriod, Profit.since(start));
+        panel(g, cx, y, cw, 42, ROW, BORDER);
+        g.fillGradient(cx + 1, y + 1, cx + cw - 1, y + 20, alpha(GREEN, 18), alpha(GREEN, 0));
+        for (int k = 0; k < 3; k++) {
+            int cy = y + 24 - k * 6;
+            rrect(g, cx + 10, cy, 20, 9, 0xFFB8860B);
+            rrect(g, cx + 11, cy + 1, 18, 5, GOLD);
+            g.fill(cx + 13, cy + 2, cx + 22, cy + 3, 0xFFFFE9A0);
+        }
+        txt(g, "TOTAL PROFIT", cx + 40, y + 6, MUTED);
+        big(g, Profit.signed(total), cx + 40, y + 19, 1.8f, profitColor(total));
 
-        int y = y0 + 76;
+        y += 46;
         int cwid = (cw - 8) / 3;
         long today = Profit.since(Profit.startOfToday());
-        long week = Profit.since(System.currentTimeMillis() - 7L * 24 * 3600 * 1000);
-        card(g, cx, y, cwid, 34, "TODAY", Profit.compactSigned(today), profitColor(today));
-        card(g, cx + cwid + 4, y, cwid, 34, "7 DAYS", Profit.compactSigned(week), profitColor(week));
-        card(g, cx + 2 * (cwid + 4), y, cwid, 34, "AVG / SALE", Profit.compactSigned(Profit.average()), profitColor(Profit.average()));
+        long week = Profit.since(now - 7L * 24 * 3600 * 1000);
+        card(g, cx, y, cwid, 30, "TODAY", Profit.compactSigned(today), profitColor(today));
+        card(g, cx + cwid + 4, y, cwid, 30, "7 DAYS", Profit.compactSigned(week), profitColor(week));
+        card(g, cx + 2 * (cwid + 4), y, cwid, 30, "AVG / SALE", Profit.compactSigned(Profit.average()), profitColor(Profit.average()));
 
-        txt(g, "Items listed: " + Profit.count() + "     Best: " + Profit.compactSigned(Profit.best()), cx, y + 40, 0xFF8A90B8);
+        y += 34;
+        txt(g, "Items sold: " + String.format("%,d", Profit.countSince(start)), cx + 2, y, TXT);
+        bitmap(g, I_TROPHY, cx + cw - 118, y - 1, GOLD, 1);
+        txtRight(g, "Best sale: " + Profit.compactSigned(Profit.bestSince(start)), cx + cw - 2, y, GREEN);
 
-        int chartY = y + 54, chartH = 44;
-        rrect(g, cx, chartY, cw, chartH, 0xFF12142A);
+        y += 14;
+        int chartH = top + H - 38 - y;
+        panel(g, cx, y, cw, chartH, BOX, BORDER);
         long[] daily = Profit.daily(7);
         long lo = 0, hi = 0;
         for (long v : daily) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
         if (hi == lo) hi = lo + 1;
-        float grow = ease(Math.min(1f, (System.currentTimeMillis() - (openAt == 0 ? tabSwitchAt : openAt)) / 600f));
-        float scale = (chartH - 8) / (float) (hi - lo);
-        int baseY = chartY + 4 + Math.round(hi * scale);
+        float grow = ease(Math.min(1f, (now - Math.max(openAt, tabSwitchAt)) / 600f));
+        float scale = (chartH - 10) / (float) (hi - lo);
+        int baseY = y + 5 + Math.round(hi * scale);
         int slot = (cw - 8) / 7;
         for (int i = 0; i < 7; i++) {
-            int bx = cx + 4 + i * slot + 4;
-            int bw = slot - 8;
+            int bx = cx + 4 + i * slot + 6;
+            int bw = slot - 12;
             int hgt = Math.round(Math.abs(daily[i]) * scale * grow);
-            if (daily[i] >= 0) g.fillGradient(bx, baseY - hgt, bx + bw, baseY, 0xFF4DE08A, 0xFF1C8A50);
-            else g.fillGradient(bx, baseY, bx + bw, baseY + hgt, 0xFFFF5D62, 0xFF9E2B30);
+            if (daily[i] >= 0) g.fillGradient(bx, baseY - hgt, bx + bw, baseY, 0xFF5CF0A0, 0xFF1C9A58);
+            else g.fillGradient(bx, baseY, bx + bw, baseY + hgt, 0xFFFF6B85, 0xFFA0233F);
             String lbl = Profit.dayLabel(6 - i);
-            txt(g, lbl, bx + (bw - textRenderer.getWidth(lbl)) / 2, chartY + chartH + 3, i == 6 ? 0xFFFFFFFF : 0xFF6C7298);
+            txt(g, lbl, bx + (bw - textRenderer.getWidth(lbl)) / 2, y + chartH + 3, i == 6 ? 0xFFFFFFFF : DIM);
         }
-        g.fill(cx + 2, baseY, cx + cw - 2, baseY + 1, 0xFF3A3F5C);
+        g.fill(cx + 2, baseY, cx + cw - 2, baseY + 1, BORDER);
 
-        button(g, mx, my, cx + cw - 110, top + H - 24, 110, 16,
-                resetArmed ? "Click to CONFIRM" : "Reset all data",
-                resetArmed ? 0xFFEF5358 : 0xFF3A3F5C, resetArmed ? 0xFF9E2B30 : 0xFF262A44, () -> {
-                    if (!resetArmed) {
-                        resetArmed = true;
-                    } else {
-                        Profit.clear();
-                        resetArmed = false;
-                    }
-                });
+        outline(g, mx, my, cx + cw - 96, top + H - 22, 96, 14, resetArmed ? "Click to CONFIRM" : "Reset all data", resetArmed, () -> {
+            if (!resetArmed) resetArmed = true;
+            else { Profit.clear(); resetArmed = false; }
+        });
     }
 
-    // ---- history
+    // ------------------------------------------------------------ history
 
     private void renderHistory(DrawContext g, int mx, int my) {
-        int y0 = top + 36;
-        title(g, "History", y0);
-        txtRight(g, Profit.count() + " sales", cx + cw, y0 + 4, 0xFF8A90B8);
+        title(g, "History", "Recent sales and profit");
 
-        txt(g, "DATE", cx + 4, y0 + 20, acc());
-        txt(g, "ITEM", cx + 108, y0 + 20, acc());
-        txt(g, "LISTED AT", cx + 158, y0 + 20, acc());
-        txtRight(g, "PROFIT", cx + cw - 4, y0 + 20, acc());
-        g.fill(cx, y0 + 31, cx + cw, y0 + 32, 0xFF2B2F52);
+        int y = y0 + 28;
+        // search
+        panel(g, cx, y, 136, 16, ROW, BORDER);
+        bitmap(g, I_SEARCH, cx + 6, y + 4, MUTED, 1);
+        valueBox(g, mx, my, "h.search", cx + 18, y + 1, 116, 14, histSearch, "Search history...", 2, 30, histSearch, s -> { histSearch = s; histPage = 0; }, false);
+        // items per page
+        txt(g, "Items per page", cx + 142, y + 4, MUTED);
+        outline(g, mx, my, cx + 212, y, 34, 16, PER_PAGE[perPageSel] + " v", false, () -> { perPageSel = (perPageSel + 1) % PER_PAGE.length; histPage = 0; });
 
-        List<Profit.Entry> list = Profit.entries();
-        if (list.isEmpty()) {
-            txt(g, "No sales yet. They will show up here.", cx + 4, y0 + 42, 0xFF8A90B8);
+        // filter
+        List<Profit.Entry> all = Profit.entries();
+        List<Profit.Entry> list = new ArrayList<>();
+        String q = histSearch.toLowerCase();
+        for (int i = all.size() - 1; i >= 0; i--) {
+            Profit.Entry e = all.get(i);
+            if (q.isEmpty() || (Profit.date(e.time) + " " + e.item + " " + e.price + " " + e.profit).toLowerCase().contains(q)) list.add(e);
         }
-        for (int i = 0; i < ROWS; i++) {
-            int idx = list.size() - 1 - (page * ROWS + i); // newest first
-            if (idx < 0) break;
+        int per = PER_PAGE[perPageSel];
+        int pages = Math.max(1, (list.size() + per - 1) / per);
+        histPage = Math.max(0, Math.min(histPage, pages - 1));
+
+        // table
+        y += 20;
+        panel(g, cx, y, cw, 14, 0xFF170D2D, BORDER);
+        txt(g, "DATE", cx + 6, y + 3, MUTED);
+        txt(g, "ITEM", cx + 110, y + 3, MUTED);
+        txt(g, "LISTED AT", cx + 164, y + 3, MUTED);
+        txt(g, "PRICE", cx + 212, y + 3, MUTED);
+        txt(g, "PROFIT", cx + 250, y + 3, MUTED);
+        txtRight(g, "ACTIONS", cx + cw - 5, y + 3, MUTED);
+
+        if (list.isEmpty()) txt(g, "No sales yet. They will show up here.", cx + 6, y + 22, MUTED);
+        for (int i = 0; i < per; i++) {
+            int idx = histPage * per + i;
+            if (idx >= list.size()) break;
             Profit.Entry e = list.get(idx);
-            int y = y0 + 34 + i * 13;
-            if (i % 2 == 0) g.fill(cx, y - 1, cx + cw, y + 11, 0xFF161930);
-            txt(g, Profit.date(e.time), cx + 4, y + 1, 0xFFDDE0F5);
-            txt(g, textRenderer.trimToWidth(e.item == null ? "Bed" : e.item, 46), cx + 108, y + 1, 0xFFB7C6F5);
-            txt(g, Profit.compact(e.price), cx + 158, y + 1, 0xFFFFFFFF);
-            txtRight(g, Profit.compactSigned(e.profit), cx + cw - 4, y + 1, profitColor(e.profit));
+            int ry = y + 16 + i * 13;
+            g.fill(cx, ry, cx + cw, ry + 13, i % 2 == 0 ? 0xFF160C2A : 0xFF1B1033);
+            txt(g, Profit.date(e.time), cx + 6, ry + 3, 0xFFDDD0F5);
+            icon(g, iconStack(cfgByName(e.item), e.item), cx + 108, ry + 2, 0.55f);
+            txt(g, textRenderer.trimToWidth(e.item == null ? "Bed" : e.item, 38), cx + 119, ry + 3, 0xFFC9B6F5);
+            int count = Math.max(1, e.count);
+            txt(g, Profit.compact(e.price), cx + 164, ry + 3, 0xFFFFFFFF);
+            txt(g, Profit.compact(e.price / count), cx + 212, ry + 3, 0xFFFFFFFF);
+            txt(g, Profit.compactSigned(e.profit), cx + 250, ry + 3, profitColor(e.profit));
+            boolean hov = hover(mx, my, cx + cw - 18, ry, 14, 13);
+            bitmap(g, I_COPY, cx + cw - 15, ry + 3, hov ? 0xFFFFFFFF : MUTED, 1);
+            if (hov) tip = "Copy this sale";
+            final String copy = Profit.date(e.time) + " | " + e.item + " | " + Profit.money(e.price) + " | " + Profit.signed(e.profit);
+            addHit(cx + cw - 18, ry, 14, 13, () -> {
+                if (client != null) client.keyboard.setClipboard(copy);
+                say("Copied");
+            });
         }
 
-        int pages = Math.max(1, (list.size() + ROWS - 1) / ROWS);
-        page = Math.min(page, pages - 1);
         int by = top + H - 24;
-        smallButton(g, mx, my, cx, by, 60, 16, "< Newer", page > 0, () -> { if (page > 0) page--; });
-        smallButton(g, mx, my, cx + cw - 60, by, 60, 16, "Older >", page < pages - 1, () -> { if (page < pages - 1) page++; });
-        g.drawCenteredTextWithShadow(textRenderer, Text.literal("Page " + (page + 1) + "/" + pages),
-                cx + cw / 2, by + 4, 0xFF8A90B8);
+        outline(g, mx, my, cx + cw - 150, by, 46, 16, "Newer", false, () -> { if (histPage > 0) histPage--; });
+        txtCenter(g, "Page " + (histPage + 1) + " / " + pages, cx + cw - 76, by + 4, MUTED);
+        primary(g, mx, my, cx + cw - 46, by, 46, 16, "Older", () -> { if (histPage < pages - 1) histPage++; });
+        txt(g, list.size() + " sale(s)", cx, by + 4, DIM);
     }
 }

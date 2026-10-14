@@ -22,6 +22,8 @@ public final class Profit {
     public static class Entry {
         public long time;
         public String item = "Bed";
+        public int count = 1;
+        public long market = 0;
         public long price;
         public long cost;
         public long profit;
@@ -34,7 +36,7 @@ public final class Profit {
     private static Data data = new Data();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final DateTimeFormatter FMT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd  h:mm a", Locale.US).withZone(ZoneId.systemDefault());
+            DateTimeFormatter.ofPattern("yyyy-MM-dd h:mm a", Locale.US).withZone(ZoneId.systemDefault());
 
     private static Path path() {
         return FabricLoader.getInstance().getConfigDir().resolve("donut-bed-profit.json");
@@ -61,8 +63,14 @@ public final class Profit {
     }
 
     public static Entry record(String item, long price, long cost) {
+        return record(item, price, cost, 1, 0);
+    }
+
+    public static Entry record(String item, long price, long cost, int count, long market) {
         Entry e = new Entry();
         e.item = item;
+        e.count = Math.max(1, count);
+        e.market = market;
         e.time = System.currentTimeMillis();
         e.price = price;
         e.cost = cost;
@@ -90,6 +98,22 @@ public final class Profit {
 
     public static long startOfToday() {
         return LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
+    }
+
+    public static long countSince(long millis) {
+        long n = 0;
+        for (Entry e : data.entries) if (e.time >= millis) n += Math.max(1, e.count);
+        return n;
+    }
+
+    public static long bestSince(long millis) {
+        long b = 0;
+        boolean first = true;
+        for (Entry e : data.entries) {
+            if (e.time < millis) continue;
+            if (first || e.profit > b) { b = e.profit; first = false; }
+        }
+        return b;
     }
 
     public static long best() {

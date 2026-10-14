@@ -1,4 +1,4 @@
-package com.marketscout;
+package com.donutbed;
 
 import net.minecraft.component.DataComponentTypes;
 import net.minecraft.component.type.LoreComponent;
@@ -69,11 +69,6 @@ public final class PriceParser {
         } catch (Exception e) {
             return null;
         }
-    }
-
-    /** Lore-only analysis (fast, safe to call every frame). */
-    public static Result analyzeLore(ItemStack stack) {
-        return parseLines(loreLines(stack));
     }
 
     public static OptionalLong fromStack(ItemStack stack, PlayerEntity player) {
