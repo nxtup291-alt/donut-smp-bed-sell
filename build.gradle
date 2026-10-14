@@ -2,7 +2,7 @@ plugins {
     id 'fabric-loom' version '1.9-SNAPSHOT'
 }
 
-version = "1.0.0"
+version = "1.2.0"
 group = "com.donutbed"
 base { archivesName = "donut-bed-client" }
 
